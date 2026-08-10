@@ -20,7 +20,7 @@ EXIT_ERR = 1
 
 
 def _open_db() -> db.sqlite3.Connection:
-    conn = db.connect(config.DB_PATH)
+    conn = db.connect(config.db_path())
     db.init_db(conn)
     return conn
 
@@ -237,6 +237,123 @@ def cmd_audit(args) -> int:
     return EXIT_OK
 
 
+def cmd_keys(args) -> int:
+    """Secure key store (secrets vault): set/get/list/rm/import.
+
+    Values are DPAPI-encrypted on Windows (bound to the current user) and are
+    NEVER echoed — `get` masks to the last 4 chars unless --show is passed.
+    """
+    import sys as _sys
+    import os as _os
+    from .secrets import SecretsError, default_vault
+    vault = default_vault()
+    try:
+        if args.action == "set":
+            if not args.name:
+                print("keys set requires --name", file=_sys.stderr)
+                return EXIT_ERR
+            if args.value is not None:
+                value = args.value
+            elif args.file:
+                with open(args.file, "r", encoding="utf-8") as f:
+                    value = f.read().strip()
+                try:
+                    import stat as _stat
+                    mode = _stat.S_IMODE(_os.stat(args.file).st_mode)
+                    if mode & 0o077:
+                        print(f"WARNING: source file {args.file!r} is not "
+                              f"0600-protected (mode {mode:o}) — keys should be "
+                              "uploaded from a private file", file=_sys.stderr)
+                except OSError:
+                    pass
+            elif args.stdin:
+                value = _sys.stdin.read().strip()
+            else:
+                print("keys set requires one of --value, --file, --stdin",
+                      file=_sys.stderr)
+                return EXIT_ERR
+            if args.delete_after and not args.file:
+                print("--delete-after only applies with --file", file=_sys.stderr)
+                return EXIT_ERR
+            vault.set(args.name, value)
+            db.log_audit(_open_db(), "cli", "keys.set",
+                         f"name={args.name} source={'file' if args.file else
+                         ('stdin' if args.stdin else 'arg')}")
+            if args.delete_after:
+                _os.remove(args.file)
+                print(f"key {args.name!r} stored in encrypted vault; "
+                      f"plaintext source removed")
+            else:
+                print(f"key {args.name!r} stored in encrypted vault "
+                      f"(masked: {vault.masked(args.name)})")
+            return EXIT_OK
+        if args.action == "get":
+            if not args.name:
+                print("keys get requires --name", file=_sys.stderr)
+                return EXIT_ERR
+            if args.show:
+                print(vault.get(args.name))
+                db.log_audit(_open_db(), "cli", "keys.get_show",
+                             f"name={args.name}")
+            else:
+                print(f"{args.name}: {vault.masked(args.name)} "
+                      "(use --show for the full value)")
+            return EXIT_OK
+        if args.action == "list":
+            entries = vault.list()
+            if not entries:
+                print("vault is empty")
+                return EXIT_OK
+            print(f"{'name':<24}{'hint':<10}created")
+            for name in sorted(entries):
+                e = entries[name]
+                print(f"{name:<24}{'****' + e['hint']:<10}{e['created_at']}")
+            return EXIT_OK
+        if args.action == "rm":
+            if not args.name:
+                print("keys rm requires --name", file=_sys.stderr)
+                return EXIT_ERR
+            vault.remove(args.name)
+            db.log_audit(_open_db(), "cli", "keys.rm", f"name={args.name}")
+            print(f"key {args.name!r} removed")
+            return EXIT_OK
+        if args.action == "import":
+            if not args.file:
+                print("keys import requires --file <key=value lines>",
+                      file=_sys.stderr)
+                return EXIT_ERR
+            count = 0
+            with open(args.file, "r", encoding="utf-8") as f:
+                for lineno, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        print(f"skip line {lineno}: no '=' (not key=value)",
+                              file=_sys.stderr)
+                        continue
+                    name, _, value = line.partition("=")
+                    name = name.strip()
+                    if not name:
+                        continue
+                    vault.set(name, value)
+                    count += 1
+            db.log_audit(_open_db(), "cli", "keys.import",
+                         f"file={args.file} keys={count}")
+            if args.delete_after:
+                _os.remove(args.file)
+                print(f"imported {count} keys into the encrypted vault; "
+                      "plaintext source removed")
+            else:
+                print(f"imported {count} keys into the encrypted vault "
+                      f"(source kept: {args.file})")
+            return EXIT_OK
+    except SecretsError as exc:
+        print(f"keys error: {exc}", file=_sys.stderr)
+        return EXIT_ERR
+    return EXIT_ERR
+
+
 def cmd_pc(args) -> int:
     """pentest-core integration (P4): stats / sync run -> facts / gated write-back."""
     import os as _os
@@ -375,6 +492,19 @@ def main(argv: list[str] | None = None) -> int:
                    help="probe every tool on its real host (kali WSL2 / docker)")
     p.add_argument("--tool", help="show one arsenal entry + its live status")
     p.set_defaults(fn=cmd_arsenal)
+
+    p = sub.add_parser("keys", help="secure key store (DPAPI vault): set/get/list/rm/import")
+    p.add_argument("action", choices=["set", "get", "list", "rm", "import"],
+                   help="set | get | list | rm | import")
+    p.add_argument("--name", help="key name (required for set/get/rm)")
+    p.add_argument("--value", help="key value (set; avoid — prefer --file/--stdin)")
+    p.add_argument("--file", help="source file (set/import): key=value lines or single value")
+    p.add_argument("--stdin", action="store_true", help="read the value from stdin (set)")
+    p.add_argument("--show", action="store_true",
+                   help="print the full value (get; default is masked)")
+    p.add_argument("--delete-after", action="store_true",
+                   help="delete the plaintext source file after successful import")
+    p.set_defaults(fn=cmd_keys)
 
     p = sub.add_parser("pc", help="pentest-core integration (P4): stats/sync/write")
     p.add_argument("pc_action", choices=["stats", "sync", "write"],

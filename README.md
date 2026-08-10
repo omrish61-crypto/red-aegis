@@ -42,6 +42,28 @@ P3 ✅  dashboard: process + results + mission views       (2026-08-10, G4a met)
 P4 ✅  pentest-core integration + hardening + scorecard   (2026-08-10, G4b met)
 ```
 
+## Secure key store (secrets vault)
+
+```
+intected keys set --name <key> --file <path>|--stdin|--value <v>   # upload (file preferred)
+intected keys import --file keys.env [--delete-after]              # bulk key=value upload
+intected keys get --name <key> [--show]                            # masked by default
+intected keys list                                                 # names + hints only
+intected keys rm --name <key>
+```
+
+On Windows, values are encrypted with DPAPI (CryptProtectData) — bound to the
+CURRENT WINDOWS USER's credentials, the native equivalent of Credential
+Manager; the vault file (`<state>/secrets.vault`) never contains plaintext.
+On other platforms the vault degrades honestly (obfuscation + 0600 perms) with
+a loud warning. Values are never echoed: `get` masks to the last 4 chars
+unless `--show` is passed, and audit rows record names only.
+
+The LLM bridge (`deepseek-ollama-bridge.py`) resolves its master key as
+env `DEEPSEEK_MASTER_KEY` → vault `deepseek_master` → legacy plaintext file, so
+after `intected keys set --name deepseek_master --file <keyfile>` the plaintext
+file can be deleted.
+
 ## pentest-core integration (P4)
 
 ```

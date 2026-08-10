@@ -18,6 +18,19 @@ STATE_DIR = os.environ.get("INTECTED_STATE", os.path.expanduser("~/.intected"))
 DB_PATH = os.path.join(STATE_DIR, "intected.db")
 EVIDENCE_DIR = os.path.join(STATE_DIR, "evidence")
 
+
+def state_dir() -> str:
+    """Resolve the state dir at CALL time (env changes respected).
+
+    STATE_DIR/DB_PATH above bind at import (fast paths); code that must honor
+    a runtime INTECTED_STATE override (CLI commands, secrets vault) uses this.
+    """
+    return os.environ.get("INTECTED_STATE") or STATE_DIR
+
+
+def db_path() -> str:
+    return os.path.join(state_dir(), "intected.db")
+
 BRIDGE_URL = "http://127.0.0.1:11435/v1"   # LiteLLM: deepseek-v4-* + local models
 OLLAMA_URL = "http://127.0.0.1:11434/v1"   # direct Ollama (deepseek-r1:8b etc.)
 

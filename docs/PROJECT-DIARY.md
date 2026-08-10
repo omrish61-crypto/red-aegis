@@ -500,3 +500,46 @@ WSL-probe flake (kali was busy with the fresh 01:12 ffuf/nikto scans). It did
 not reproduce in 4 subsequent runs (141/141 each; `lastfailed={}`). The exact
 test name was cleared from the pytest cache by the passing re-run — recorded
 honestly rather than guessed.
+
+---
+
+## 2026-08-11 01:20–01:50 — Secure key upload (secrets vault) + user evidence verification
+
+**Request:** "create a secure way for the key upload" + spot-check the dashboard
+evidence modals the user pasted (fact #18 nmap, fact #14 nikto) via review
+agents.
+
+### 1. Secrets vault (intected/secrets.py + `intected keys` CLI) — DONE
+- Windows: DPAPI (CryptProtectData, current-user scope) — the native
+  Credential-Manager-grade store; `<state>/secrets.vault` never holds
+  plaintext (live-verified: real master key stored, not present in the file).
+- Other platforms: honest degradation (obfuscation + 0600) with a loud
+  warning at set-time.
+- CLI: `keys set/get/list/rm/import` (--file/--stdin/--show/--delete-after);
+  values never echoed (masked last-4), audit rows carry names only, import
+  --delete-after is success-gated.
+- config: `state_dir()/db_path()` lazy resolution — runtime INTECTED_STATE
+  overrides now honored (this ALSO fixed a latent bug where CLI commands
+  ignored a mid-process env change).
+- Bridge integration: master_key() = env > vault 'deepseek_master' > plaintext
+  file; live-proven vault-only (10 models incl. deepseek-v4-flash/pro served
+  with the plaintext file moved aside); vault failures now audible (stderr)
+  after review WARN.
+
+### 2. Security review (agent deleg_4711a7e6) — APPROVED
+- 155 passed / 1 skipped; DPAPI binding correct; no plaintext in vault;
+  masking/audit leak-free; tamper detected (probe on a copy of the REAL
+  vault); --delete-after success-gated; **no key material in repo/git**.
+- WARNs fixed: audible vault failure (bridge), --name required, --show
+  audited, hint suppressed for short values → suite 157 passed / 1 skipped.
+
+### 3. Evidence-chain verification (agent deleg_f1f3e8c4) — APPROVED
+- fact #14 (nikto): DB sha256 == file sha256 == modal sha256
+  (5f1cec9dabf3…), content verbatim, parsed sibling facts consistent.
+- Spot-check nmap facts 18–21 (0a2585962281…): PASS.
+- WARN: zap-65104def8460.raw orphan (failed ZAP phase artifact — the
+  /zap/wrk mount issue already documented honestly in ENGAGEMENT-REPORT.md).
+- DB integrity_check ok. docs/CONTROL-REPORT-EVIDENCE.md + SECRETS.md.
+
+**State:** suite 157 passed / 1 skipped · vault live with real key · bridge on
+vault · both control reports APPROVED · commit follows.
