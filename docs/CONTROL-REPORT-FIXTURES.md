@@ -66,3 +66,20 @@ nikto (`real-nikto-dvwa-20260810.txt`):
 The primary deliverable — fresh, today-dated ffuf/nikto lab captures — **did not appear** within the 67-minute supervision window (40 polls × 90 s). The work that WAS done (nikto extractor OSVDB fix, regression tests, README provenance + honest burp note) is authentic, accurate, and fully green: 34/34 tests pass against real captures whose sha256 match the documented provenance, and no fabricated burp fixture exists. But per the acceptance criteria ("fixture modified today 2026-08-11", "new real-ffuf-* / real-nikto-* files"), the fixture deliverable itself is **missing** — Worker B reused the existing 2026-08-10 captures rather than producing new ones.
 
 **Fix required:** Worker B must re-run `ffuf -u http://127.0.0.1:8001/FUZZ … -json` and `nikto -h http://127.0.0.1:8001 …` against the live lab (127.0.0.1:8001), save the verbatim output as `real-ffuf-dvwa-20260811.jsonl` / `real-nikto-dvwa-20260811.txt` (or equivalent 20260811 names), point the ffuf/nikto real-fixture tests at them, and update the README provenance table + sha256. No code defects were found in what was delivered.
+
+---
+
+## RESOLUTION (2026-08-11 01:15) — finding CLOSED by fix-forward
+
+The freshness finding was addressed immediately after this report was written:
+
+- Fresh real scans re-run 2026-08-11 01:12 against the live lab
+  (127.0.0.1:8001): `real-ffuf-dvwa-20260811.jsonl` (9 paths, DVWA layout)
+  sha256 `ef6f6f08816a640c5af7997715fdcfb7732e48f6adf04047a123940ac62b723a`
+  and `real-nikto-dvwa-20260811.txt` (Apache/2.4.25 banner, 13 OSVDB findings,
+  completed cleanly within maxtime — 0 ERROR lines) sha256
+  `c0312733ae951f584209e2e31e4f4bfe3065b3fbd87ba91c73956798bcc45621`.
+- The ffuf/nikto real-fixture tests were retargeted to the 20260811 files
+  (assertions made capture-robust; the `+ ERROR:` format remains pinned in
+  FormatSampleTest). README provenance table updated with both sha256s.
+- Full suite: **141/141 passed**; on-disk sha256s match the README exactly.
