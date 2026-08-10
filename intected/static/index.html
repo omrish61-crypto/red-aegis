@@ -26,6 +26,12 @@
   </nav>
 
   <main>
+    <div id="auth-banner" class="auth-banner hidden">
+      <strong>Authentication failed</strong>
+      <span>The token in the URL is missing or invalid — every request is rejected
+        (401). Reload with <code>?token=&lt;TOKEN&gt;</code> from
+        <code>~/.intected/dashboard.token</code>.</span>
+    </div>
     <!-- PROCESS -->
     <section id="view-process" class="view active">
       <div class="grid-2">

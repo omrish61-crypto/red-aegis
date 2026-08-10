@@ -83,6 +83,14 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()[0]["name"], "api")
 
+    def test_spa_serves_auth_banner_element(self):
+        """UX fix 2026-08-11: a missing/invalid token must not leave a silent
+        empty shell — the SPA ships an auth-failure banner (shown by app.js)."""
+        r = self.client.get("/")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("auth-banner", r.text)
+        self.assertIn("Authentication failed", r.text)
+
     def test_wrong_token_rejected(self):
         r = self.client.get("/api/missions", params={"token": "wrong"})
         self.assertEqual(r.status_code, 401)

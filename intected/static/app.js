@@ -133,12 +133,20 @@ document.querySelectorAll(".tab").forEach((t) => {
   };
 });
 
+function showAuthError() {
+  $("conn").textContent = "auth error";
+  $("conn").className = "pill err";
+  const b = $("auth-banner");
+  if (b) b.classList.remove("hidden");
+}
+
 async function tick() {
   try {
     await loadBundle();
   } catch (e) {
     $("conn").textContent = "error: " + e.message;
     $("conn").className = "pill err";
+    if (/unauthorized/i.test(e.message || "")) showAuthError();
   }
 }
 
@@ -146,8 +154,7 @@ async function tick() {
   try {
     await loadMissions();
   } catch (e) {
-    $("conn").textContent = "auth error";
-    $("conn").className = "pill err";
+    showAuthError();
     return;
   }
   await tick();

@@ -30,7 +30,12 @@ main { padding: 18px 22px; }
 .grid-2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; margin-bottom: 16px; }
 @media (max-width: 1000px) { .grid-2 { grid-template-columns: 1fr; } }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-  padding: 16px; margin-bottom: 16px; }
+  padding: 14px 16px; margin-bottom: 14px; }
+.auth-banner { background: #2a1418; border: 1px solid var(--err); color: var(--text);
+  border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; display: flex;
+  flex-direction: column; gap: 4px; }
+.auth-banner code { color: var(--ok); }
+.auth-banner.hidden { display: none; }
 .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;
   color: var(--muted); margin-bottom: 12px; }
 .hint { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
