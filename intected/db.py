@@ -134,6 +134,28 @@ def get_mission(conn, mission_id: int) -> sqlite3.Row | None:
     return conn.execute("SELECT * FROM missions WHERE id=?", (mission_id,)).fetchone()
 
 
+def add_mission_target(conn, mission_id: int, target: str) -> list[str]:
+    """Append a validated target to a mission's allowed-hosts scope (deduped).
+
+    Returns the updated scope list. The caller validates the target
+    (scope.validate_target) BEFORE calling this.
+    """
+    mission = get_mission(conn, mission_id)
+    if mission is None:
+        raise KeyError(mission_id)
+    hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+    if not isinstance(hosts, list):
+        hosts = []
+    if target not in hosts:
+        hosts.append(target)
+        conn.execute("UPDATE missions SET allowed_hosts_json=? WHERE id=?",
+                     (json.dumps(hosts), mission_id))
+        conn.commit()
+        log_audit(conn, "dashboard", "mission.add_target",
+                  f"mission={mission_id} target={target}")
+    return hosts
+
+
 def list_missions(conn) -> list[sqlite3.Row]:
     return conn.execute("SELECT id, name, status, created_at, auth_ref "
                         "FROM missions ORDER BY id DESC").fetchall()

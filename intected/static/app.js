@@ -91,12 +91,12 @@ function render() {
   const m = b.mission;
   let hosts = [];
   try { hosts = JSON.parse(m.allowed_hosts_json); } catch (e) {}
+  renderTargets(hosts);
   $("mission-dl").innerHTML =
     `<dt>id</dt><dd>${m.id}</dd><dt>name</dt><dd>${esc(m.name)}</dd>
      <dt>status</dt><dd>${esc(m.status)}</dd>
      <dt>auth ref</dt><dd>${esc(m.auth_ref || "—")}</dd>
-     <dt>created</dt><dd>${esc(m.created_at)}</dd>
-     <dt>scope</dt><dd>${hosts.map((h) => `<span class="scope-chip">${esc(h)}</span>`).join("")}</dd>`;
+     <dt>created</dt><dd>${esc(m.created_at)}</dd>`;
   const cards = [
     ["tasks", b.stats.tasks.completed || 0, "completed"],
     ["tasks", (b.stats.tasks.in_progress || 0), "in progress"],
@@ -133,11 +133,54 @@ document.querySelectorAll(".tab").forEach((t) => {
   };
 });
 
+document.addEventListener("DOMContentLoaded", () => {
+  const form = document.getElementById("target-form");
+  if (form) form.addEventListener("submit", addTarget);
+});
+
 function showAuthError() {
   $("conn").textContent = "auth error";
   $("conn").className = "pill err";
   const b = $("auth-banner");
   if (b) b.classList.remove("hidden");
+}
+
+function renderTargets(hosts) {
+  $("scope-chips").innerHTML = (hosts && hosts.length)
+    ? hosts.map((h) => `<span class="scope-chip">${esc(h)}</span>`).join("")
+    : '<span style="color:var(--muted)">no targets yet — add an IP, domain, or IP range</span>';
+}
+
+async function addTarget(ev) {
+  ev.preventDefault();
+  const input = $("target-input");
+  const msg = $("target-msg");
+  const value = input.value.trim();
+  msg.textContent = "";
+  if (!value) { msg.textContent = "enter a target first"; return; }
+  const missionId = document.querySelector("#mission-select").value;
+  if (!missionId) { msg.textContent = "select a mission first"; return; }
+  // token lives in the page URL (?token=…) — GETs use the query param, POSTs
+  // must forward it explicitly (never rely on Referer)
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  try {
+    const res = await fetch(`/api/missions/${missionId}/targets`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-INTECTED-Token": token,
+      },
+      body: JSON.stringify({ target: value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = data.detail || `error ${res.status}`; return; }
+    renderTargets(data.scope);
+    msg.textContent = `added ${data.target}`;
+    msg.className = "target-msg ok";
+    input.value = "";
+  } catch (e) {
+    msg.textContent = "request failed: " + e.message;
+  }
 }
 
 async function tick() {

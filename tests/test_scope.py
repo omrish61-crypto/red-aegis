@@ -30,6 +30,37 @@ class ScopeHostTest(unittest.TestCase):
             scope.check_target("10.0.0.5", [])
 
 
+class ScopeTargetValidateTest(unittest.TestCase):
+    """Dashboard target input (IP / domain / IP range) — validate_target."""
+
+    def test_accepts_ipv4(self):
+        self.assertEqual(scope.validate_target("10.0.0.5"), "10.0.0.5")
+
+    def test_accepts_domain(self):
+        self.assertEqual(scope.validate_target("Example.COM"), "example.com")
+
+    def test_accepts_ipv4_range(self):
+        self.assertEqual(scope.validate_target("192.168.1.0/24"), "192.168.1.0/24")
+
+    def test_accepts_ipv6(self):
+        self.assertEqual(scope.validate_target("2001:db8::1"), "2001:db8::1")
+
+    def test_rejects_out_of_range_octet(self):
+        with self.assertRaises(ValueError):
+            scope.validate_target("10.0.0.999")
+
+    def test_rejects_url(self):
+        for bad in ("http://example.com", "https://evil.com/x", "example.com/path"):
+            with self.assertRaises(ValueError):
+                scope.validate_target(bad)
+
+    def test_rejects_garbage(self):
+        for bad in ("", "   ", "a b c", "10.0.0.1:8080", "1.2.3", "-bad-.com",
+                    "192.168.1.0/33", "10.0.0.1/abc"):
+            with self.assertRaises(ValueError):
+                scope.validate_target(bad)
+
+
 class ScopeCommandTest(unittest.TestCase):
     def test_command_with_in_scope_hosts_passes(self):
         scope.check_command("nmap -sV 10.0.0.5", ["10.0.0.5"])

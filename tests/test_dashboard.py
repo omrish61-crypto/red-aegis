@@ -3,6 +3,7 @@
 Requires the `test` extra (httpx) for TestClient.
 """
 
+import json
 import os
 import tempfile
 import unittest
@@ -116,6 +117,52 @@ class ApiTest(unittest.TestCase):
     def test_unknown_mission_404(self):
         r = self.client.get("/api/missions/999", params={"token": self.token})
         self.assertEqual(r.status_code, 404)
+
+    def test_add_target_endpoint(self):
+        r = self.client.post(f"/api/missions/{self.mid}/targets",
+                             params={"token": self.token},
+                             json={"target": "10.0.0.5"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("10.0.0.5", data["scope"])
+        self.assertEqual(data["target"], "10.0.0.5")
+        # mission bundle reflects the new scope
+        r = self.client.get(f"/api/missions/{self.mid}",
+                            params={"token": self.token})
+        hosts = json.loads(r.json()["mission"]["allowed_hosts_json"])
+        self.assertIn("10.0.0.5", hosts)
+
+    def test_add_target_domain_and_range(self):
+        for t in ("example.com", "192.168.1.0/24"):
+            r = self.client.post(f"/api/missions/{self.mid}/targets",
+                                 params={"token": self.token},
+                                 json={"target": t})
+            self.assertEqual(r.status_code, 200, t)
+        hosts = self.client.get(f"/api/missions/{self.mid}",
+                                params={"token": self.token}).json()["mission"]
+        self.assertEqual(len(json.loads(hosts["allowed_hosts_json"])), 3)
+
+    def test_add_target_dedupe(self):
+        for _ in range(2):
+            self.client.post(f"/api/missions/{self.mid}/targets",
+                             params={"token": self.token},
+                             json={"target": "10.0.0.5"})
+        hosts = self.client.get(f"/api/missions/{self.mid}",
+                                params={"token": self.token}).json()["mission"]
+        scope = json.loads(hosts["allowed_hosts_json"])
+        self.assertEqual(scope.count("10.0.0.5"), 1)  # added exactly once
+
+    def test_add_target_invalid_rejected(self):
+        for bad in ("http://evil.com", "10.0.0.999", "a b c", "", "1.2.3"):
+            r = self.client.post(f"/api/missions/{self.mid}/targets",
+                                 params={"token": self.token},
+                                 json={"target": bad})
+            self.assertEqual(r.status_code, 422, bad)
+
+    def test_add_target_requires_auth(self):
+        r = self.client.post(f"/api/missions/{self.mid}/targets",
+                             json={"target": "10.0.0.5"})
+        self.assertEqual(r.status_code, 401)
 
     def test_evidence_endpoint(self):
         r = self.client.get(f"/api/missions/{self.mid}/evidence/1",

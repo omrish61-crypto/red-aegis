@@ -76,6 +76,15 @@
           <div id="stat-cards" class="stat-cards"></div>
         </div>
       </div>
+      <div class="card">
+        <h2>Targets (scope) <span class="hint">IP / domain / IP range</span></h2>
+        <div id="scope-chips" class="scope-chips"></div>
+        <form id="target-form" class="target-form">
+          <input id="target-input" type="text" placeholder="e.g. 10.0.0.5, example.com, 192.168.1.0/24" autocomplete="off" spellcheck="false">
+          <button type="submit" class="btn">Add target</button>
+        </form>
+        <p id="target-msg" class="target-msg"></p>
+      </div>
     </section>
   </main>
 

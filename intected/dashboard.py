@@ -115,6 +115,31 @@ def create_app(token: str | None = None,
         finally:
             conn.close()
 
+    @app.post("/api/missions/{mission_id}/targets")
+    def api_add_target(mission_id: int, payload: dict,
+                       token: str | None = Query(None),
+                       x_intected_token: str | None = Header(None),
+                       origin: str | None = Header(None)):
+        """Add a validated target (IP / IP range / domain) to the mission scope."""
+        if not _authorized(token or x_intected_token, origin):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        target = (payload.get("target") or "").strip()
+        if not target:
+            raise HTTPException(status_code=422, detail="target required")
+        try:
+            from .scope import validate_target
+            normalized = validate_target(target)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        conn = _open()
+        try:
+            hosts = db.add_mission_target(conn, mission_id, normalized)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="mission not found")
+        finally:
+            conn.close()
+        return {"mission_id": mission_id, "scope": hosts, "target": normalized}
+
     @app.get("/api/missions/{mission_id}/evidence/{fact_id}")
     def api_evidence(mission_id: int, fact_id: int,
                      token: str | None = Query(None),

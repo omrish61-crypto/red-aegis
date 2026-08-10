@@ -543,3 +543,24 @@ agents.
 
 **State:** suite 157 passed / 1 skipped · vault live with real key · bridge on
 vault · both control reports APPROVED · commit follows.
+
+---
+
+## 2026-08-11 01:55–02:10 — Dashboard: target input (IP / domain / IP range)
+
+**Request:** "הוסף לדשבורד מקום להכניס את פרטי המטרה (IP OR DOMAIN OR IP
+RANGE)" — add a target-entry field to the dashboard.
+
+- Backend: `scope.validate_target()` (IPv4 / IPv6 / CIDR v4+v6 / hostname;
+  rejects URLs, paths, ports, spaces, malformed IPs like `1.2.3` /
+  `10.0.0.999`); `db.add_mission_target()` (deduped scope append + audit);
+  `POST /api/missions/{id}/targets` (auth + origin-guarded, 422 on invalid).
+- Frontend: Mission view "Targets (scope)" card — chips + input + Add button,
+  live feedback ("added X" / server detail on error).
+- **Live test caught a real bug**: the POST fetch didn't forward the token
+  (GETs use the URL query; the fetch sent none → 401). Fixed: the page reads
+  `?token=` from the URL and sends `X-INTECTED-Token`. Re-verified end-to-end
+  in the browser (chips update, audit rows 171-172).
+- Also cleaned 4 empty test-artifact missions (id 4-7, "LAB") that the old
+  pre-fix CLI tests had written into the real state DB yesterday 22:33.
+- Tests: 157 → 169 (8 validator + 5 API endpoint tests).

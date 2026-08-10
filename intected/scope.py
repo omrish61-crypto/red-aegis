@@ -129,6 +129,56 @@ def _is_ip_literal(token: str) -> bool:
     return bool(_IP_LITERAL_RE.match(token))
 
 
+_HOSTNAME_RE = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+
+
+def validate_target(target: str) -> str:
+    """Validate a user-supplied target (IP / IP range / domain) for scope.
+
+    Accepts: IPv4 literal, IPv6 literal, CIDR range (IPv4 or IPv6), or a
+    hostname (RFC-1035-ish labels). Rejects: URLs/schemes, paths, ports,
+    spaces, out-of-range octets, and anything non-host-shaped.
+    Returns the normalized target or raises ValueError with a reason.
+    """
+    t = target.strip()
+    if not t:
+        raise ValueError("target is empty")
+    if len(t) > 253:
+        raise ValueError("target too long")
+    if any(ch.isspace() for ch in t):
+        raise ValueError("target must not contain spaces")
+    if "/" in t:
+        host, _, rest = t.partition("/")
+        if not rest.isdigit() or not (0 <= int(rest) <= 128):
+            raise ValueError(f"invalid CIDR prefix in {t!r}")
+        try:
+            import ipaddress
+            ipaddress.ip_network(t, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"invalid IP range {t!r}") from exc
+        return t
+    if ":" in t and not _HOSTNAME_RE.match(t):  # IPv6 literal
+        try:
+            import ipaddress
+            ipaddress.ip_address(t)
+        except ValueError as exc:
+            raise ValueError(f"invalid IPv6 address {t!r}") from exc
+        return t
+    if _IP_LITERAL_RE.match(t):
+        parts = [int(p) for p in t.split(".")]
+        if any(p > 255 for p in parts):
+            raise ValueError(f"invalid IP address {t!r}")
+        return t
+    if re.fullmatch(r"[0-9.]+", t):
+        # digits-and-dots but not a valid IPv4 -> malformed IP, not a hostname
+        raise ValueError(f"invalid IP address {t!r}")
+    if _HOSTNAME_RE.match(t):
+        return t.lower()
+    raise ValueError(f"invalid target {t!r} (use IP, IP range, or domain)")
+
+
 def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False,
                   authorizations=None) -> None:
     """Validate every host token in a command against scope.
