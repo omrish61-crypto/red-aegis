@@ -57,6 +57,42 @@ class ScopeCommandTest(unittest.TestCase):
         self.assertIn("10.0.0.5", tokens)
         self.assertIn("dvwa.local", tokens)
 
+    def test_key_value_script_args_are_not_hosts(self):
+        """PITFALL FIX (live 2026-08-10): nmap --script-args http-fetch.paths=/metrics
+        was falsely rejected — `http-fetch.paths` looks like a hostname."""
+        cmd = ("nmap -Pn -p 3000 --script http-fetch "
+               "--script-args http-fetch.paths={/metrics} 127.0.0.1")
+        scope.check_command(cmd, ["127.0.0.1"])  # must NOT raise
+        # a real out-of-scope host in an arg value is STILL caught
+        with self.assertRaises(scope.ScopeViolation):
+            scope.check_command('curl -s http://dvwa.local/ -H "Host: evil.example.com"',
+                                ["dvwa.local"])
+        # an out-of-scope IP in a spoof header is still a host token
+        with self.assertRaises(scope.ScopeViolation):
+            scope.check_command('curl -s http://dvwa.local/ -H "X-Forwarded-For: 1.2.3.4"',
+                                ["dvwa.local"])
+
+    def test_equals_skip_cannot_bypass_scope(self):
+        """CONTROL-REVIEW H1 (live-verified bypass): any host token followed by
+        `=` was exempted. IP literals and URL-context hosts are ALWAYS checked."""
+        # positional IP with = suffix (reviewer's exploit) -> must raise
+        with self.assertRaises(scope.ScopeViolation):
+            scope.check_command("nmap -sV 10.0.0.99=x", ["10.0.0.5"])
+        # out-of-scope host inside a URL value -> must raise
+        with self.assertRaises(scope.ScopeViolation):
+            scope.check_command("curl -s http://dvwa.local/ -e http://evil.com= "
+                                "http://dvwa.local/", ["dvwa.local"])
+        with self.assertRaises(scope.ScopeViolation):
+            scope.check_command("curl --url=http://evil.com= http://dvwa.local/",
+                                ["dvwa.local"])
+        # hostname-shaped bare option name still exempted (legit script-args)
+        scope.check_command("nmap -Pn -p 3000 --script http-fetch "
+                            "--script-args http-fetch.paths=/metrics 127.0.0.1",
+                            ["127.0.0.1"])
+        # in-scope value assignment passes
+        scope.check_command("curl --url=http://dvwa.local/a http://dvwa.local/",
+                            ["dvwa.local"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

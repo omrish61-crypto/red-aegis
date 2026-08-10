@@ -55,6 +55,18 @@ class RouterChatTest(unittest.TestCase):
         self.assertIn("11435", url)
         self.assertEqual(payload["model"], "deepseek-v4-flash")
 
+    def test_reasoning_route_sends_temperature_zero(self):
+        """Strict-JSON task: temperature 0.0 (verified live — default temp
+        drifts to prose on complex digests)."""
+        post, calls = _fake_post('{"ok": true}')
+        Router().chat("reasoning", [{"role": "user", "content": "hi"}], _post=post)
+        self.assertEqual(calls[0][1]["temperature"], 0.0)
+
+    def test_local_routes_omit_temperature(self):
+        post, calls = _fake_post("OK")
+        Router().chat("light", [{"role": "user", "content": "hi"}], _post=post)
+        self.assertNotIn("temperature", calls[0][1])
+
     def test_chat_falls_back_to_flash_when_local_fails(self):
         """Local route error -> fallback to reasoning (flash)."""
         def flaky(url, payload, timeout):

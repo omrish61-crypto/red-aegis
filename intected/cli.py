@@ -45,6 +45,27 @@ def cmd_status(args) -> int:
         for m in missions:
             print(f"#{m['id']:>3}  {m['status']:<7} {m['name']:<24} "
                   f"created={m['created_at']} auth_ref={m['auth_ref']}")
+        # pentest-core integration state (P4) — probed, not assumed
+        import os as _os
+        from . import pentestcore
+        pc_path = config.PENTEST_CORE_DB
+        if _os.path.exists(pc_path):
+            try:
+                pc_conn = pentestcore.connect(pc_path)
+                try:
+                    s = pentestcore.stats(pc_conn)
+                    sev = dict(sorted(s["by_severity"].items(),
+                                      key=lambda kv: -kv[1]))
+                    print(f"\npentest-core integration: OK ({pc_path})")
+                    print(f"  runs={s['runs']} findings={s['findings']} "
+                          f"severity={sev}")
+                finally:
+                    pc_conn.close()
+            except Exception as exc:
+                print(f"\npentest-core integration: ERROR ({exc})")
+        else:
+            print(f"\npentest-core integration: not configured "
+                  f"(db not found at {pc_path}; set INTECTED_PENTEST_CORE_DB)")
         return EXIT_OK
     mission = db.get_mission(conn, args.mission)
     if mission is None:
@@ -216,6 +237,74 @@ def cmd_audit(args) -> int:
     return EXIT_OK
 
 
+def cmd_pc(args) -> int:
+    """pentest-core integration (P4): stats / sync run -> facts / gated write-back."""
+    import os as _os
+    from . import pentestcore
+    pc_path = args.db or config.PENTEST_CORE_DB
+    if not _os.path.exists(pc_path):
+        print(f"pentest-core db not found: {pc_path}\n"
+              "set INTECTED_PENTEST_CORE_DB to the real db path "
+              "(e.g. \\\\wsl$\\...\\.pentest-core\\pentest.db or a backup copy).",
+              file=sys.stderr)
+        return EXIT_ERR
+    pc_conn = pentestcore.connect(pc_path)
+    try:
+        if args.pc_action == "stats":
+            s = pentestcore.stats(pc_conn)
+            print(f"pentest-core db: {pc_path}")
+            print(f"runs={s['runs']}  findings={s['findings']}")
+            print("by severity: " + ", ".join(
+                f"{k}={v}" for k, v in sorted(s["by_severity"].items(),
+                                              key=lambda kv: -kv[1])))
+            print("by engine:   " + ", ".join(
+                f"{k}={v}" for k, v in s["by_engine"].items()))
+            print("\nrecent runs:")
+            for r in pentestcore.list_runs(pc_conn, limit=10):
+                sev = ", ".join(f"{k}={v}" for k, v in sorted(
+                    r["by_severity"].items(), key=lambda kv: -kv[1]))
+                print(f"  {r['run_id']:<40} target={r['target']:<22} "
+                      f"findings={r['findings']} ({sev})")
+            return EXIT_OK
+
+        conn = _open_db()
+        if args.pc_action == "sync":
+            if not args.run or args.mission is None:
+                print("pc sync requires --run <run_id> and --mission <id>",
+                      file=sys.stderr)
+                return EXIT_ERR
+            res = pentestcore.sync_run(conn, pc_conn, args.run, args.mission)
+            print(f"synced run {res['run']} (target {res['target']}) into "
+                  f"mission {args.mission}: {res['facts_added']} facts added, "
+                  f"{res['skipped']} already present")
+            return EXIT_OK
+        if args.pc_action == "write":
+            if not args.target or not args.engine or not args.severity or not args.title:
+                print("pc write requires --target --engine --severity --title "
+                      "(and --mission)", file=sys.stderr)
+                return EXIT_ERR
+            # explicit scope-gated write -> writable connection
+            pc_conn.close()
+            pc_conn = pentestcore.connect_rw(pc_path)
+            fid = pentestcore.write_finding(
+                pc_conn, conn, args.mission, args.target, args.engine,
+                args.severity, args.title, port=args.port, path=args.path or "",
+                detail=args.detail or "", cwe=[c.strip() for c in
+                (args.cwe or "").split(",") if c.strip()],
+                cve=[c.strip() for c in (args.cve or "").split(",") if c.strip()])
+            print(f"finding {fid} written to pentest-core run "
+                  f"{pentestcore.run_id_for(args.target)} (target {args.target}, "
+                  f"engine {args.engine}, {args.severity})")
+            return EXIT_OK
+    except (pentestcore.PentestCoreError, ValueError, db.sqlite3.Error,
+            db.sqlite3.OperationalError) as exc:
+        print(f"pc error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    finally:
+        pc_conn.close()
+    return EXIT_ERR
+
+
 def cmd_dashboard(args) -> int:
     """Start the FastAPI dashboard (P3)."""
     from .dashboard import create_app, load_or_create_token
@@ -286,6 +375,25 @@ def main(argv: list[str] | None = None) -> int:
                    help="probe every tool on its real host (kali WSL2 / docker)")
     p.add_argument("--tool", help="show one arsenal entry + its live status")
     p.set_defaults(fn=cmd_arsenal)
+
+    p = sub.add_parser("pc", help="pentest-core integration (P4): stats/sync/write")
+    p.add_argument("pc_action", choices=["stats", "sync", "write"],
+                   help="stats | sync <run> | write <finding>")
+    p.add_argument("--db", help="path to pentest-core pentest.db "
+                                "(default: INTECTED_PENTEST_CORE_DB or ~/.pentest-core/pentest.db)")
+    p.add_argument("--run", help="pentest-core run_id to sync (with sync)")
+    p.add_argument("--mission", type=int, help="INTECTED mission id (with sync/write)")
+    p.add_argument("--target", help="target host/IP:port (with write; scope-checked)")
+    p.add_argument("--engine", help="engine name (with write)")
+    p.add_argument("--severity", choices=["critical", "high", "medium", "low", "info"],
+                   help="severity (with write)")
+    p.add_argument("--title", help="finding title (with write)")
+    p.add_argument("--port", type=int, help="port (with write)")
+    p.add_argument("--path", help="path (with write)")
+    p.add_argument("--detail", help="detail text (with write)")
+    p.add_argument("--cwe", help="comma-separated CWE ids (with write)")
+    p.add_argument("--cve", help="comma-separated CVE ids (with write)")
+    p.set_defaults(fn=cmd_pc)
 
     p = sub.add_parser("audit", help="show audit log")
     p.add_argument("--limit", type=int, default=50)

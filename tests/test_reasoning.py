@@ -223,6 +223,50 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(res["command"]["state"], "rejected")
         self.assertIn("unknown task_id", res["command"]["reason"])
 
+    def test_hallucinated_depends_on_ids_dropped_not_crash(self):
+        """PITFALL FIX (live 2026-08-10): model-invented depends_on ids crashed
+        the task_deps INSERT (FK). Unknown deps are dropped, task still created."""
+        res = self._run(plan(task_updates=[
+            {"title": "enumerate metrics", "category": "recon",
+             "depends_on": [self.t, 9999]},  # 9999 does not exist
+        ]))
+        self.assertTrue(res["ok"])
+        self.assertEqual(len(res["task_updates_applied"]), 1)
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE title='enumerate metrics'").fetchone()
+        self.assertIsNotNone(row)
+        deps = self.conn.execute(
+            "SELECT depends_on FROM task_deps WHERE task_id=?", (row["id"],)).fetchall()
+        self.assertEqual([d["depends_on"] for d in deps], [self.t])  # only valid dep
+
+    def test_non_list_depends_on_does_not_crash(self):
+        """CONTROL-REVIEW M1 (verified live): depends_on: 5 raised an unhandled
+        TypeError. Non-list types are treated as no deps, task still created."""
+        for bad in (5, True, "x", 3.14):
+            res = self._run(plan(task_updates=[
+                {"title": f"t-{bad}", "category": "recon", "depends_on": bad},
+            ]))
+            self.assertTrue(res["ok"])
+            self.assertEqual(len(res["task_updates_applied"]), 1)
+            row = self.conn.execute(
+                "SELECT * FROM tasks WHERE title=?", (f"t-{bad}",)).fetchone()
+            self.assertIsNotNone(row)
+            n = self.conn.execute(
+                "SELECT COUNT(*) n FROM task_deps WHERE task_id=?",
+                (row["id"],)).fetchone()["n"]
+            self.assertEqual(n, 0)
+
+    def test_digest_filters_pass_level_facts(self):
+        """PASS-level ZAP rules are scan-coverage noise — filtered from digest."""
+        from intected.reasoning import build_digest
+        db.add_fact(self.conn, self.mid, "zap", "note",
+                    {"zap_rule": "10003", "level": "PASS", "name": "X"}, confidence=1.0)
+        db.add_fact(self.conn, self.mid, "zap", "note",
+                    {"zap_rule": "10010", "level": "WARN", "name": "Y"}, confidence=1.0)
+        d = build_digest(self.conn, self.mid)
+        self.assertNotIn("10003", d)
+        self.assertIn("10010", d)
+
     def test_destructive_marker_string_true_rejected(self):
         """Model sending aggressive:"true" (string) must NOT unlock --drop."""
         res = self._run(plan(suggested_command={

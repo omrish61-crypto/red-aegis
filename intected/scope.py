@@ -121,6 +121,14 @@ def check_target(target: str, allowed_hosts: list[str]) -> None:
         )
 
 
+_IP_LITERAL_RE = re.compile(r"^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$")
+
+
+def _is_ip_literal(token: str) -> bool:
+    """True for bare IPv4-looking tokens (10.0.0.99) — never an option name."""
+    return bool(_IP_LITERAL_RE.match(token))
+
+
 def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False,
                   authorizations=None) -> None:
     """Validate every host token in a command against scope.
@@ -152,9 +160,20 @@ def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False,
             )
     # 2. Host-token gate — every host-like token must be in scope.
     #    File-like tokens (wordlists, outputs) are excluded.
-    for token in HOST_TOKEN_RE.findall(cmd):
+    for m in HOST_TOKEN_RE.finditer(cmd):
+        token = m.group(0)
         if _looks_like_file(token):
             continue
+        # key=value option assignments (nmap --script-args http-fetch.paths=/metrics)
+        # are NOT hosts — but ONLY when the token is a bare option-name-shaped
+        # token (letters, NOT an IP literal) AND not inside a URL (previous
+        # char is not '/'). Control-review H1 (live-verified): `10.0.0.99=x`
+        # and `curl --url=http://evil.com= ...` bypassed the gate — both are
+        # checked again here.
+        if cmd[m.end():m.end() + 1] == "=":
+            prev = cmd[m.start() - 1] if m.start() > 0 else "/"
+            if not _is_ip_literal(token) and prev not in "/.=:&":
+                continue
         check_target(token, allowed_hosts)
 
 

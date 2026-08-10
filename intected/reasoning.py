@@ -117,15 +117,32 @@ def build_digest(conn, mission_id: int, max_facts: int = 30,
     except Exception:  # noqa: BLE001
         pass
     lines.append("TASK TREE:")
-    for node in ptm.task_tree(conn, mission_id):
+    nodes = ptm.task_tree(conn, mission_id)
+    if not nodes:
+        lines.append("  (no tasks yet — propose the first task)")
+    for node in nodes:
         lines.append(f"  [{node['id']}] {node['status']:<10} {node['category']:<8} "
                      f"{node['title']}")
         for child in node["children"]:
             lines.append(f"    [{child['id']}] {child['status']:<10} "
                          f"{child['category']:<8} {child['title']}")
     facts = db.get_facts(conn, mission_id)
+    # Drop scan-coverage noise (ZAP PASS rules etc.) before compaction: a PASS
+    # level means "no issue found" — it belongs in the fact store, not in the
+    # reasoning context, where it drowns the findings (verified live 2026-08-10:
+    # 61/75 facts were PASS rules and the LLM degraded to prose on the bloat).
+    def _is_pass_rule(f):
+        v = f["value_json"] if not isinstance(f, dict) else f.get("value", {})
+        if isinstance(v, str):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                return False
+        return isinstance(v, dict) and v.get("level") == "PASS"
+
+    facts = [f for f in facts if not _is_pass_rule(f)]
     compacted = ptm.compact_facts(facts, limit=max_facts)
-    lines.append(f"FACTS ({len(facts)} total, {len(compacted)} shown, evidence-linked):")
+    lines.append(f"FACTS ({len(facts)} relevant, {len(compacted)} shown, evidence-linked):")
     for f in compacted:
         lines.append(f"  [{f['id']}] {f['tool']}/{f['fact_type']}: "
                      f"{json.dumps(f['value'], ensure_ascii=True)[:160]}")
@@ -145,8 +162,14 @@ class ReasoningEngine:
         self._router = router or Router()
 
     def next_step(self, conn, mission_id: int, user_input: str = "",
-                  max_tokens: int = 1200) -> dict:
-        """One reasoning turn: digest -> LLM -> apply updates -> validate cmd."""
+                  max_tokens: int = 4096) -> dict:
+        """One reasoning turn: digest -> LLM -> apply updates -> validate cmd.
+
+        max_tokens must be generous: deepseek-v4-flash runs a heavy thinking
+        phase before emitting content (measured 4800-5200 chars of reasoning on
+        a 15-fact digest); 1200 tokens left it finish=length with EMPTY content
+        (verified live 2026-08-10).
+        """
         digest = build_digest(conn, mission_id)
         user_msg = f"MISSION STATE:\n{digest}\n\n"
         if user_input:
@@ -230,10 +253,31 @@ class ReasoningEngine:
                 except ptm.TaskError:
                     continue
             elif "title" in u:
-                tid = ptm.propose_task(
-                    conn, mission_id, u["title"], u.get("category", "general"),
-                    depends_on=u.get("depends_on"),
-                )
+                # Model-invented FK guard (pitfall: depends_on ids are NOT
+                # validated by db.add_task and would crash the task_deps
+                # INSERT). Validate TYPE and ids — a non-list (5, "x") must not
+                # crash either (control-review M1, verified live). Drop unknown
+                # ones cleanly (never let an INSERT crash).
+                raw_deps = u.get("depends_on")
+                if not isinstance(raw_deps, list):
+                    deps, hallucinated = [], raw_deps is not None
+                else:
+                    deps = [d for d in raw_deps if isinstance(d, int)
+                            and ptm.get_task(conn, d) is not None]
+                    hallucinated = len(deps) != len(raw_deps)
+                if hallucinated:
+                    db.log_audit(conn, "reasoning", "update.skipped",
+                                 "model hallucinated depends_on ids — dropped "
+                                 f"{u.get('depends_on')!r}")
+                try:
+                    tid = ptm.propose_task(
+                        conn, mission_id, u["title"], u.get("category", "general"),
+                        depends_on=deps,
+                    )
+                except (ptm.TaskError, db.sqlite3.IntegrityError) as exc:
+                    db.log_audit(conn, "reasoning", "update.skipped",
+                                 f"task insert failed: {exc}")
+                    continue
                 applied.append(f"created task {tid} ({u['title'][:50]})")
         return applied
 

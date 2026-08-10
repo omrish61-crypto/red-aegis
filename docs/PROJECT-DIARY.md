@@ -322,3 +322,98 @@ eyewitness), shodan/censys (CLIs present but gated `api` — keys required).
 
 **Verified:** 104/104 tests · live `arsenal --check` shows 25 tools `ok` +
 honest non-ok statuses · digest AVAILABLE TOOLS line live (only `ok` tools).
+
+---
+
+## 2026-08-10 — P4: pentest-core integration + hardening + acceptance scorecard
+
+**User decision:** "continue and finish project" — G4b approval for P4, no
+intermediate gates; final acceptance package delivered at close.
+
+**P4 deliverables (all verified):**
+1. **`intected/pentestcore.py`** — pentest-core integration:
+   - `connect()` READ-ONLY (uri mode=ro) + schema validation (rejects
+     non-pentest-core DBs); `connect_rw()` only for the explicit write path.
+   - Reader: `stats()` (runs/findings by severity+engine), `list_runs()`
+     (recent-first + per-severity breakdown), `get_run()` (JSON list columns
+     decoded: cwe/cve/evidence/raw_lines).
+   - `sync_run()` — import a run's findings into an INTECTED mission as facts
+     with evidence_ref + sha256 and {pc_run, pc_finding} markers; IDEMPOTENT
+     (re-sync adds 0). Fact-type mapping: open_port→port, discovered_path→path,
+     cve→cve, else note.
+   - `write_finding()` — DOUBLE-GATED write-back: MissionScope.check_target
+     (deny-by-default) + severity whitelist + engine/title required; run row
+     auto-created; INTECTED audit logged.
+2. **CLI** — `intected pc stats|sync|write [--db PATH]` + `status` now probes
+   and prints the pentest-core integration state (probed, not assumed).
+3. **`config.PENTEST_CORE_DB`** env-overridable path.
+4. **Hardening (real QA events, all root-caused):**
+   - reasoning route: `temperature: 0.0` (default temp drifted to prose on
+     complex digests; probe with temp 0.0 returned schema-exact JSON).
+   - digest: PASS-level ZAP facts filtered (75→15 relevant; 61/75 were PASS
+     rules drowning the findings), empty task tree says so explicitly.
+   - `max_tokens` 1200→4096 + timeout 60→300: flash runs a heavy thinking
+     phase (measured 4800–5200 chars reasoning) — 1200 tokens ended
+     finish=length with EMPTY content.
+   - `_apply_task_updates`: hallucinated `depends_on` ids dropped (FK crash
+     guard) — model-invented-FK pitfall hit LIVE.
+   - scope.py: `key=value` script args (`http-fetch.paths=/metrics`) no longer
+     falsely rejected as hosts; real out-of-scope header hosts still caught.
+5. **Tests** — `tests/test_pentestcore.py` (18: fixture built from the REAL
+   production schema; reader/sync/write/CLI incl. idempotency + scope gate),
+   +1 reasoning FK-guard, +2 router temperature, +1 scope key=value. Suite:
+   **126/126** (was 104).
+
+**LIVE verification (real artifacts, real calls, real browser):**
+- `pc stats` against a backup of the live pentest.db: 13 runs / 176 findings,
+  severity + engine breakdown exact. (Also verified against the NATIVE
+  Windows DB at the DEFAULT path `~/.pentest-core/pentest.db` — 35 runs / 412
+  findings, 12 engines — the integration works with zero config on Windows;
+  live sync of run localhost_8001-20260810-211331 added 20 facts.)
+- `pc sync` run 127.0.0.1_3000-20260810-221603 → 13 facts; re-sync → 0 added.
+- `pc write`: in-scope → finding 177 created; out-of-scope (8.8.8.8) →
+  SCOPE VIOLATION exit 1.
+- INTECTED parser on pentest-core's REAL raw artifacts: zap-baseline.txt →
+  61 facts (158 URLs), nuclei.jsonl → prometheus-metrics (matches pentest.db).
+- Live reasoning E2E: objective + 3 tasks + ffuf command APPROVED
+  (in-scope, `-ac` wildcard filtering); gates live: aggressive:"true"
+  rejected, hallucinated ids rejected.
+- Dashboard live browser (DOM-verified): conn pill connected, task tree (3),
+  command queue, FINDINGS & FACTS (75), evidence modal sha256
+  d1ccdc1d2b4a… + "✓ verified on disk", 78 audit rows, 401 without token.
+
+**Acceptance scorecard (docs/ACCEPTANCE-SCORECARD.md):** G1 85% · G2 92% ·
+G3 88% · G4 70% · G5 95% → weighted **86.6%**. Honest gaps: long-run dedup +
+40-message rollover not stress-tested; ffuf/burp/nikto real captures missing;
+write-back validated on backup copy (production DB untouched).
+
+**Control agents dispatched** (2 parallel, independent): code review →
+CONTROL-REPORT-CODE.md, policy/evidence/fixture audit →
+CONTROL-REPORT-POLICY.md. Fix-forward applies; final commit after verdicts.
+
+---
+
+## 2026-08-10 — Control verdicts + fix-forward (final round)
+
+**Verdicts:** POLICY audit → **APPROVED** (13-item table, 0 FAILs vs the four
+iron rules; 3 advisory WARNs). CODE review → **NEEDS-FIX**: 1 HIGH + 3 MEDIUM
++ 4 LOW. Fix-forward applied and re-verified — suite **133/133**.
+
+| Finding | Fix (file) | Verified |
+|---|---|---|
+| H1 scope bypass: `=`-skip exempted ANY host token (live exploits: `10.0.0.99=x`, `curl --url=http://evil.com=`) | scope.py: skip only if NOT IP literal AND prev char not `/` (not in URL); start-of-command treated as URL context | live re-run of the reviewer's exact 3 exploits → all blocked; legit script-args + ffuf still pass |
+| M1 depends_on non-list crashed (`depends_on: 5` → TypeError) | reasoning.py: type-check before iterating; non-list → no deps (audited) | test loop 5/True/"x"/3.14 → ok, tasks created |
+| M2 sync_run imported out-of-scope runs | pentestcore.py: `scope.check_target` on run target before import | live: `pc sync` of external run 35.206.100.20 → refused, clean error |
+| M3 `\\wsl$\` UNC path broke read-only URI connect | pentestcore.py: fallback plain connect + `PRAGMA query_only=ON` | unit: ro-write rejection test |
+| L1 raw tracebacks on pc CLI errors | cli.py: missing-arg guards + clean `pc error:` handler | 2 CLI error-path tests |
+| L2 connect_rw FK off | pentestcore.py: `PRAGMA foreign_keys=ON` | PRAGMA test |
+| L3 `_fact_value` NULL detail crash | `(f["detail"] or "")[:500]` | — |
+| W1 evidence-less write-back | documented OPERATOR-CERTIFIED semantics (module docstring) — CLI-only path, never LLM-reachable | — |
+| W12/W13 engine vocab, run_id form | accepted as documented platform behavior (pentest-core itself writes evidence-less rows and mixed run_id forms) | — |
+
+**Tests added (control-driven):** scope `=`-bypass (3 exploit cases + 2 legit),
+depends_on non-list ×4, digest PASS-filter, sync out-of-scope refusal,
+ro-write rejection, rw FK enforcement, pc missing-args ×2.
+
+**Final state:** suite 133/133 · all control findings closed · docs:
+CONTROL-REPORT-CODE.md + CONTROL-REPORT-POLICY.md committed · commit follows.

@@ -29,14 +29,30 @@ INTECTED/
 
 ## Status
 
-**G0 approved (Track B) · P0–P3 ✅ (90/90 tests, dashboard verified live in
-browser: process + results + mission views) · G4a met.** Awaiting go/no-go for
-P4 (pentest-core integration + acceptance).
+**G0 approved (Track B) · P0–P4 ✅ (126/126 tests, dashboard verified live,
+pentest-core integration live-verified, acceptance scorecard 86.6% weighted) ·
+plan complete.** See docs/ACCEPTANCE-SCORECARD.md for the quantified scorecard
+and docs/CONTROL-REPORT-*.md for the independent audit verdicts.
 
 ```
 P0 ✅  scaffold + schema + router + scope gate + CLI      (2026-08-10, G1 met)
 P1 ✅  parsing module + evidence store + 8 extractors     (2026-08-10, G2 met)
 P2 ✅  reasoning module + PTM ops + command generation    (2026-08-10, G3 met)
 P3 ✅  dashboard: process + results + mission views       (2026-08-10, G4a met)
-P4 ⏳  pentest-core integration + hardening + scorecard    (next)
+P4 ✅  pentest-core integration + hardening + scorecard   (2026-08-10, G4b met)
 ```
+
+## pentest-core integration (P4)
+
+```
+intected pc stats [--db PATH]            # overview of the pentest-core DB
+intected pc sync --run RUN_ID --mission N [--db PATH]   # import findings as facts (idempotent)
+intected pc write --mission N --target T --engine E --severity S --title X [--db PATH]
+                                         # scope-gated write-back (deny by default)
+```
+
+The reader opens pentest.db READ-ONLY and validates the schema; the only write
+path is `pc write`, gated by MissionScope (target must be inside the mission's
+allowed hosts) + a severity whitelist. Point `INTECTED_PENTEST_CORE_DB` at the
+DB (e.g. a WSL path or backup copy). `intected status` reports the integration
+state (probed, not assumed).

@@ -77,6 +77,8 @@ class Router:
                 "max_tokens": max_tokens,
                 "stream": False,
             }
+            if route.get("temperature") is not None:
+                payload["temperature"] = route["temperature"]
             try:
                 resp = post(url, payload, timeout or route["timeout"])
                 return _extract_text(resp)
