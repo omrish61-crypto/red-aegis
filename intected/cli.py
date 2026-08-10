@@ -28,9 +28,12 @@ def _open_db() -> db.sqlite3.Connection:
 def cmd_init(args) -> int:
     conn = _open_db()
     hosts = [h.strip() for h in args.targets.split(",") if h.strip()]
-    mission_id = db.create_mission(conn, args.name, hosts, auth_ref=args.auth_ref)
+    authz = [a.strip().lower() for a in (args.authz or "").split(",") if a.strip()]
+    mission_id = db.create_mission(conn, args.name, hosts, auth_ref=args.auth_ref,
+                                   authorizations=authz)
     print(f"mission created: id={mission_id} name={args.name!r} "
-          f"hosts={hosts} auth_ref={args.auth_ref!r}")
+          f"hosts={hosts} auth_ref={args.auth_ref!r} "
+          f"authorizations={authz}")
     print(f"db: {config.DB_PATH}")
     return EXIT_OK
 
@@ -165,6 +168,31 @@ def cmd_digest(args) -> int:
     return EXIT_OK
 
 
+def cmd_arsenal(args) -> int:
+    """Catalog listing + real availability probe (no green-flag assumptions)."""
+    from . import arsenal
+    probe = arsenal.probe_arsenal(force=args.check or args.tool is not None)
+    if args.tool:
+        entry = next((e for e in arsenal.ARSENAL if e["name"] == args.tool), None)
+        if entry is None:
+            print(f"arsenal: unknown tool {args.tool!r} "
+                  f"(known: {', '.join(e['name'] for e in arsenal.ARSENAL)})",
+                  file=sys.stderr)
+            return EXIT_ERR
+        st = probe.get(entry["name"], "?")
+        print(f"tool:      {entry['name']} [{st}]")
+        print(f"phase:     {entry['phase']}")
+        print(f"purpose:   {entry['purpose']}")
+        print(f"host:      {entry['host']}")
+        print(f"template:  {entry['template'] or '(none)'}")
+        if entry["guardrail"]:
+            print(f"guardrail: {entry['guardrail']}")
+        return EXIT_OK
+    print("INTECTED arsenal — live availability (probed, not assumed):")
+    print(arsenal.format_arsenal_table(probe))
+    return EXIT_OK
+
+
 def cmd_router_check(args) -> int:
     from .router import router_check
     rows = router_check()
@@ -212,6 +240,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name", required=True)
     p.add_argument("--targets", required=True, help="comma-separated hosts/CIDRs")
     p.add_argument("--auth-ref", help="written-authorization reference (required for real ops)")
+    p.add_argument("--authz", help="comma-separated risk categories authorized: "
+                                   "phishing,c2,evasion,credential "
+                                   "(tools in other categories are REJECTED)")
     p.set_defaults(fn=cmd_init)
 
     p = sub.add_parser("status", help="show missions / mission state")
@@ -229,7 +260,8 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("paste", help="store raw tool output as evidence (P1 parses)")
     p.add_argument("--mission", type=int, required=True)
     p.add_argument("--tool", required=True, choices=["nmap", "ffuf", "gobuster", "burp",
-                                                     "nuclei", "sqlmap", "nikto", "other"])
+                                                     "nuclei", "sqlmap", "nikto",
+                                                     "masscan", "other"])
     p.add_argument("--file", required=True)
     p.set_defaults(fn=cmd_paste)
 
@@ -248,6 +280,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("router-check", help="live latency probe of all LLM routes")
     p.set_defaults(fn=cmd_router_check)
+
+    p = sub.add_parser("arsenal", help="tool arsenal: catalog + LIVE availability check")
+    p.add_argument("--check", action="store_true",
+                   help="probe every tool on its real host (kali WSL2 / docker)")
+    p.add_argument("--tool", help="show one arsenal entry + its live status")
+    p.set_defaults(fn=cmd_arsenal)
 
     p = sub.add_parser("audit", help="show audit log")
     p.add_argument("--limit", type=int, default=50)

@@ -107,3 +107,9 @@ def _extract_text(text: str):
                       "value": {"tool": "nmap", "script": "http-title",
                                 "title": bounded(m.group(1))}})
     return dedupe_facts(facts), warnings
+
+
+# Public alias: shared with the masscan extractor (masscan -oX emits the nmap
+# XML dialect — same <host>/<port>/<state> element tree). Defined after
+# _extract_xml so module import resolves it.
+extract_xml = _extract_xml

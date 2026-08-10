@@ -24,18 +24,50 @@ AGGRESSIVE_MARKERS = (
     "rm -rf", "DROP TABLE", "DROP DATABASE", "format ", "mkfs",
 )
 
+# Risk categories -> tool names. Tools in these categories are REJECTED unless
+# the mission declares the category in missions.authorizations_json
+# (deny-by-default). arsenal.py re-exports this as RISK_TO_TOOLS — this dict is
+# the single source of truth; the enforcement point is check_command().
+RISK_CATEGORIES = {
+    "phishing":   {"gophish", "evilginx2", "evilginx"},
+    "c2":         {"sliver", "havoc", "mythic", "cobalt-strike", "cobaltstrike"},
+    "evasion":    {"donut", "syswhispers", "pe-bearer", "unhooking"},
+    "credential": {"mimikatz", "rubeus", "certipy", "secretsdump"},
+}
+
+_RISK_TOOL_RE = re.compile(
+    r"\b(?:%s)\b" % "|".join(
+        re.escape(t) for tools in RISK_CATEGORIES.values() for t in tools
+    ),
+    re.IGNORECASE,
+)
+
+
+def _gated_tool(cmd: str) -> tuple[str, str] | None:
+    """Return (tool, risk_category) if the command invokes a gated tool."""
+    for m in _RISK_TOOL_RE.finditer(cmd):
+        tool = m.group(0).lower()
+        for risk, tools in RISK_CATEGORIES.items():
+            if tool in tools:
+                return tool, risk
+    return None
+
 
 class ScopeViolation(PermissionError):
     """Raised when a target or command falls outside the mission's allowed scope."""
 
 
 # File-like tokens that are NOT hosts (wordlists, scripts, outputs). A token
-# ending in one of these is skipped by command validation.
+# ending in one of these is skipped by command validation. Includes payload
+# artifact extensions (msfvenom/donut outputs like shell.elf must not be
+# treated as hosts).
 FILE_EXTENSIONS = {
     "txt", "lst", "dic", "json", "xml", "php", "html", "htm", "js", "css",
     "log", "csv", "yml", "yaml", "conf", "cfg", "ini", "md", "sh", "py", "rb",
     "pl", "exe", "bin", "gz", "zip", "tar", "pcap", "db", "sql", "bak", "old",
     "save", "out", "raw", "list", "words", "php3", "jsp", "asp", "aspx",
+    "elf", "dll", "so", "bat", "cmd", "vbs", "ps1", "jar", "war", "app",
+    "msi", "deb", "rpm", "ko", "c", "h", "asm", "o", "a",
 }
 
 
@@ -89,10 +121,14 @@ def check_target(target: str, allowed_hosts: list[str]) -> None:
         )
 
 
-def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False) -> None:
+def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False,
+                  authorizations=None) -> None:
     """Validate every host token in a command against scope.
 
     `aggressive` must be the STRICT boolean True to permit destructive markers.
+    `authorizations` must be a set/list of risk categories the mission declares
+    (phishing/c2/evasion/credential). A bare string or None NEVER counts —
+    gated tools are denied by default.
     """
     # 1. Destructive marker gate
     lower = cmd.lower()
@@ -101,6 +137,18 @@ def check_command(cmd: str, allowed_hosts: list[str], aggressive: bool = False) 
             raise ScopeViolation(
                 "command contains destructive markers and aggressive=True "
                 f"(strict boolean) was not passed: {cmd!r}"
+            )
+    # 1b. Risk-category gate: gated tools need explicit mission authorization
+    if not isinstance(authorizations, (set, list, frozenset)):
+        authorizations = set()  # None or a bare string -> deny by default
+    gated = _gated_tool(cmd)
+    if gated is not None:
+        tool, risk = gated
+        if risk not in authorizations:
+            raise ScopeViolation(
+                f"tool {tool!r} is gated under '{risk}' and the mission does "
+                f"not authorize that category (authorized: "
+                f"{sorted(authorizations) or 'none'})"
             )
     # 2. Host-token gate — every host-like token must be in scope.
     #    File-like tokens (wordlists, outputs) are excluded.

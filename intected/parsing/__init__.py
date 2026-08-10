@@ -20,6 +20,7 @@ from .. import db
 from .extractors.burp import extract as extract_burp
 from .extractors.ffuf import extract as extract_ffuf
 from .extractors.gobuster import extract as extract_gobuster
+from .extractors.masscan import extract as extract_masscan
 from .extractors.nikto import extract as extract_nikto
 from .extractors.nmap import extract as extract_nmap
 from .extractors.nuclei import extract as extract_nuclei
@@ -35,6 +36,7 @@ EXTRACTORS = {
     "zap": extract_zap,
     "burp": extract_burp,
     "nikto": extract_nikto,
+    "masscan": extract_masscan,
 }
 
 

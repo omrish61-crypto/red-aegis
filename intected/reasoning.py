@@ -31,6 +31,11 @@ RULES (hard):
 - A command is single-purpose: one tool, one objective.
 - Destructive/aggressive operations (sqlmap --drop/--tamper, rm -rf, DROP) MUST be
   flagged with "aggressive": true in the command object.
+- Phishing / MFA-bypass / EDR-evasion tools (gophish, evilginx2, syswhispers,
+  pe-bearer) MUST be flagged aggressive:true AND surfaced in open_questions for
+  explicit tester approval — never proposed as routine next steps.
+- Only suggest tools listed in AVAILABLE TOOLS — a tool absent from that list is
+  not installed and its command will be rejected.
 - Never re-propose a command that a completed task already covers.
 - Respond with STRICT JSON ONLY (no markdown fences, no commentary).
 - Output in English.
@@ -94,6 +99,23 @@ def build_digest(conn, mission_id: int, max_facts: int = 30,
         raise ReasoningError(f"mission {mission_id} not found")
     lines = [f"MISSION {mission['name']} (id={mission_id}) status={mission['status']}",
              f"ALLOWED SCOPE: {mission['allowed_hosts_json']}"]
+    try:
+        from . import arsenal
+        lines.append(f"AVAILABLE TOOLS (live-probed): {arsenal.arsenal_summary()}")
+    except Exception:  # noqa: BLE001 — arsenal probe must never break reasoning
+        pass
+    try:
+        authz = json.loads(mission["authorizations_json"] or "[]")
+    except (KeyError, TypeError, ValueError):
+        authz = []
+    lines.append(f"AUTHORIZED RISK CATEGORIES: {sorted(authz)}")
+    try:
+        from . import arsenal
+        blocked = arsenal.blocked_categories(set(authz))
+        if blocked:
+            lines.append(f"BLOCKED TOOL CATEGORIES (commands rejected): {blocked}")
+    except Exception:  # noqa: BLE001
+        pass
     lines.append("TASK TREE:")
     for node in ptm.task_tree(conn, mission_id):
         lines.append(f"  [{node['id']}] {node['status']:<10} {node['category']:<8} "
@@ -224,6 +246,10 @@ class ReasoningEngine:
         cmd = cmd_spec["cmd"]
         mission = db.get_mission(conn, mission_id)
         allowed = json.loads(mission["allowed_hosts_json"])
+        try:
+            authz = json.loads(mission["authorizations_json"] or "[]")
+        except (KeyError, TypeError, ValueError):
+            authz = []
         task_id = cmd_spec.get("task_id")
         aggressive = cmd_spec.get("aggressive", False)
 
@@ -240,9 +266,11 @@ class ReasoningEngine:
         if ptm.duplicate_command(conn, mission_id, cmd):
             return {"state": "rejected", "cmd": cmd,
                     "reason": "duplicate of an existing/previous command (anti-loop)"}
-        # 3. scope gate: host tokens must be inside allowed scope
+        # 3. scope gate: host tokens must be inside allowed scope AND gated
+        #    tools need their risk category in the mission's authorizations
         try:
-            scope.check_command(cmd, allowed, aggressive=aggressive is True)
+            scope.check_command(cmd, allowed, aggressive=aggressive is True,
+                                authorizations=set(authz))
         except scope.ScopeViolation as exc:
             db.log_audit(conn, "reasoning", "command.rejected", str(exc))
             return {"state": "rejected", "cmd": cmd, "reason": str(exc)}

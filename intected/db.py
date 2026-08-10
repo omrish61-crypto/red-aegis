@@ -9,7 +9,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS missions(
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS missions(
   scope_json TEXT NOT NULL DEFAULT '{}',
   allowed_hosts_json TEXT NOT NULL DEFAULT '[]',
   auth_ref TEXT,
+  authorizations_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   closed_at TEXT
@@ -90,12 +91,21 @@ def connect(db_path: str | os.PathLike) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Apply schema + version bookkeeping. Idempotent."""
+    """Apply schema + version bookkeeping. Idempotent; migrates v1 -> v2."""
     conn.executescript(SCHEMA)
+    # v1 -> v2 migration: missions.authorizations_json (risk-category gates)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(missions)")}
+    if "authorizations_json" not in cols:
+        conn.execute("ALTER TABLE missions ADD COLUMN "
+                     "authorizations_json TEXT NOT NULL DEFAULT '[]'")
     row = conn.execute("SELECT version FROM schema_version").fetchone()
     if row is None:
-        conn.execute("INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,))
-        conn.commit()
+        conn.execute("INSERT INTO schema_version(version) VALUES (?)",
+                     (SCHEMA_VERSION,))
+    elif row["version"] != SCHEMA_VERSION:
+        conn.execute("UPDATE schema_version SET version=? WHERE version=?",
+                     (SCHEMA_VERSION, row["version"]))
+    conn.commit()
 
 
 def now_iso() -> str:
@@ -105,14 +115,18 @@ def now_iso() -> str:
 # --- Missions ---------------------------------------------------------------
 
 def create_mission(conn, name: str, allowed_hosts: list[str],
-                   auth_ref: str | None = None, scope: dict | None = None) -> int:
+                   auth_ref: str | None = None, scope: dict | None = None,
+                   authorizations: list[str] | None = None) -> int:
     cur = conn.execute(
-        "INSERT INTO missions(name, scope_json, allowed_hosts_json, auth_ref) "
-        "VALUES (?,?,?,?)",
-        (name, json.dumps(scope or {}), json.dumps(allowed_hosts), auth_ref),
+        "INSERT INTO missions(name, scope_json, allowed_hosts_json, auth_ref, "
+        "authorizations_json) VALUES (?,?,?,?,?)",
+        (name, json.dumps(scope or {}), json.dumps(allowed_hosts), auth_ref,
+         json.dumps(authorizations or [])),
     )
     conn.commit()
-    log_audit(conn, "cli", "mission.create", f"name={name!r} hosts={allowed_hosts}")
+    log_audit(conn, "cli", "mission.create",
+              f"name={name!r} hosts={allowed_hosts} "
+              f"authz={authorizations or []}")
     return cur.lastrowid
 
 

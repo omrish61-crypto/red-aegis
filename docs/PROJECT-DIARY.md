@@ -250,3 +250,75 @@ model behavior, test traps — all root-caused, never papered over).
    pentest-core patterns (nuclei/ZAP via Docker; native nmap/sqlmap).
 2. Hardening — scope/auth audit pass, CLI polish.
 3. Acceptance — readiness scorecard per plan §2 (G1–G5, quantified).
+
+---
+
+## 2026-08-10 — Arsenal expansion (tool knowledge base + authorization gates)
+
+**Delivered (merged with a concurrent sibling session's arsenal work — same
+feature, two designs; reconciled to one API):**
+
+1. **`intected/arsenal.py`** — 38-tool catalog covering the 6 requested
+   categories (recon / initial-access / c2 / privesc / lateral / evasion) with
+   live availability probing: `arsenal` CLI command, `--tool <name>` detail
+   view, per-process cache. Availability is PROBED, never assumed
+   (`wsl -d kali-linux command -v` batch).
+2. **Risk-category authorization gate (hard enforcement)** — `scope.RISK_CATEGORIES`
+   (phishing / c2 / evasion / credential) + `check_command(..., authorizations=)`.
+   Gated tools are REJECTED unless the mission declares the category via
+   `intected init --authz phishing,c2,...` (deny-by-default; a bare string never
+   counts — same strictness as `aggressive`). Wired through
+   `reasoning._handle_command`; digest shows AUTHORIZED / BLOCKED categories.
+   Schema v2: `missions.authorizations_json` (idempotent ALTER migration).
+3. **masscan extractor** — adapter over the validated nmap XML parser
+   (masscan `-oX` emits the nmap dialect). **Live finding: masscan 1.3.2 is
+   TX-broken in Kali-WSL2** (adapter binds, rate stays 0.00-kpps, `-oX` empty;
+   nmap -sS works in the same env) → catalog status `broken`, digest excludes
+   it. Parser validated against REAL captured nmap XML of the same element
+   tree (`tests/fixtures/nmap-dvwa-live.xml`, Nmap 7.99 → DVWA :8001).
+4. **Scope-gate hardening** — payload artifact extensions (`.elf .dll .so
+   .ps1 .jar ...`) added to FILE_EXTENSIONS so output files are never treated
+   as hosts (caught live: `msfvenom -o shell.elf` was rejected as out-of-scope).
+
+**Verified:** 104/104 tests (90 canonical + 5 sibling arsenal + 6 authz-gate +
+3 masscan) · live CLI `arsenal` table · live digest with AVAILABLE TOOLS +
+AUTHORIZED/BLOCKED categories · live `--authz` mission creation · payload-file
+gate. Concurrent sibling installed sqlmap/gobuster/ffuf/nuclei on Kali during
+the session — live probe picked the new tools up automatically.
+
+**Open (checkpoint — awaiting user go/no-go):** bulk-install the ~19 missing
+Kali tools (sublist3r, eyewitness, gophish, evilginx2, donut, sliver, havoc,
+mythic, mimikatz, rubeus, linpeas, winpeas, bloodhound, sharphound, impacket,
+certipy, chisel, ligolo-ng, syswhispers) + per-tool extractors from real
+captured output (amass/netexec/theharvester/responder next, format-known).
+
+---
+
+## 2026-08-10 — Arsenal bulk install COMPLETED (closes the checkpoint above)
+
+**Live-verified on Kali WSL2 (all probes REAL `command -v` / version output):**
+
+- **apt (Kali repos):** sublist3r, eyewitness, gophish, evilginx2, donut,
+  mimikatz, sliver (pkg installs `sliver-server`/`sliver-client`), chisel,
+  ligolo-ng (pkg installs `ligolo-proxy`/`ligolo-agent`), nuclei, sqlmap,
+  gobuster, hashcat, jq, sqlite3 — all `ok`.
+- **pip:** certipy-ad 5.0.4 (PEP 668 → `--break-system-packages`; Kali has no
+  `certipy` console script — wrapper written to `/usr/local/bin/certipy`).
+- **release binaries → `/opt/arsenal/` + symlinks into `/usr/local/bin`**
+  (so `command -v` finds them): linpeas.sh, winPEASx64.exe, Rubeus.exe
+  (Ghostpack-CompiledBinaries mirror; upstream release ships no binary asset),
+  SharpHound.exe v2.14.0 (unzipped). sha256 recorded.
+- **catalog reconciled to reality:** 16 entries flipped `install → kali` with
+  the REAL binary names (sliver-server, ligolo-proxy, bloodhound-python,
+  impacket-secretsdump, rubeus, winpeas, sharphound, linpeas...).
+- **masscan `broken` override CONFIRMED by live test** — `--wait 0` still
+  drains ~30s printing `waiting -N-secs`, `found=0`, empty `-oX`; nmap -sS
+  works in the same environment.
+
+**Not installed (deliberate, honest statuses):** havoc (no Kali package —
+GitHub build only), mythic (docker-compose stack), cobalt-strike (license),
+syswhispers / pe-bearer (windows-host source tools), aquatone (deprecated →
+eyewitness), shodan/censys (CLIs present but gated `api` — keys required).
+
+**Verified:** 104/104 tests · live `arsenal --check` shows 25 tools `ok` +
+honest non-ok statuses · digest AVAILABLE TOOLS line live (only `ok` tools).
