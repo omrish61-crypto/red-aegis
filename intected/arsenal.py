@@ -257,7 +257,7 @@ def _probe_kali(names: list[str]) -> dict[str, bool]:
     script = "for t in %s; do command -v \"$t\" >/dev/null 2>&1 && echo \"ok $t\" || echo \"miss $t\"; done" % " ".join(names)
     try:
         res = subprocess.run(_KALI_WSL + [script], capture_output=True,
-                             text=True, timeout=60)
+                             text=True, timeout=8)
     except (subprocess.SubprocessError, OSError):
         return {n: False for n in names}
     found: dict[str, bool] = {}
