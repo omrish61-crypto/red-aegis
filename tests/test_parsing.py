@@ -127,8 +127,96 @@ class ZapRealFixtureTest(unittest.TestCase):
         self.assertTrue(any(n["value"].get("zap_total_urls") == 158 for n in notes))
 
 
+class FfufRealFixtureTest(unittest.TestCase):
+    """Real ffuf 2.1.0-dev -json captures (DVWA + Juice Shop SPA)."""
+
+    def test_dvwa_paths(self):
+        facts, warnings = extract("ffuf", "real-ffuf-dvwa-20260811.jsonl")
+        self.assertEqual(warnings, [])
+        paths = {f["value"]["path"]: f["value"] for f in find_facts(facts, "path")}
+        self.assertEqual(len(paths), 9)
+        # dir-style 301s carry their redirect target
+        self.assertEqual(paths["http://127.0.0.1:8001/config"]["status"], 301)
+        self.assertEqual(paths["http://127.0.0.1:8001/config"]["redirect"],
+                         "http://127.0.0.1:8001/config/")
+        self.assertIn("http://127.0.0.1:8001/docs", paths)
+        # login-gated pages redirect to login.php
+        self.assertEqual(paths["http://127.0.0.1:8001/index.php"]["status"], 302)
+        self.assertEqual(paths["http://127.0.0.1:8001/index.php"]["redirect"], "login.php")
+        self.assertEqual(paths["http://127.0.0.1:8001/phpinfo.php"]["redirect"], "login.php")
+        # plain 200s with sizes
+        self.assertEqual(paths["http://127.0.0.1:8001/robots.txt"]["status"], 200)
+        self.assertEqual(paths["http://127.0.0.1:8001/favicon.ico"]["status"], 200)
+        self.assertEqual(paths["http://127.0.0.1:8001/php.ini"]["status"], 200)
+
+    def test_juiceshop_spa_capture(self):
+        # SPA wildcard responses were auto-calibrated away (-ac); what remains
+        # are real paths incl. redirects and a 2.2 MB video stream. Note the
+        # case-variant pair /video and /Video — real-world duplicate evidence.
+        facts, warnings = extract("ffuf", "real-ffuf-juiceshop-20260810.jsonl")
+        self.assertEqual(warnings, [])
+        paths = {f["value"]["path"]: f["value"] for f in find_facts(facts, "path")}
+        self.assertEqual(len(paths), 16)
+        self.assertEqual(paths["http://127.0.0.1:3000/assets"]["status"], 301)
+        self.assertEqual(paths["http://127.0.0.1:3000/assets"]["redirect"], "/assets/")
+        self.assertEqual(paths["http://127.0.0.1:3000/media"]["redirect"], "/media/")
+        self.assertEqual(paths["http://127.0.0.1:3000/robots.txt"]["status"], 200)
+        self.assertEqual(paths["http://127.0.0.1:3000/video"]["size"], 2232676)
+        self.assertEqual(paths["http://127.0.0.1:3000/Video"]["size"], 2232676)
+
+
+class NiktoRealFixtureTest(unittest.TestCase):
+    """Real nikto 2.6.0 capture (DVWA :8001, -maxtime 90s)."""
+
+    def test_apache_banner(self):
+        facts, _ = extract("nikto", "real-nikto-dvwa-20260811.txt")
+        versions = find_facts(facts, "version", product="http-server")
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0]["value"]["banner"], "Apache/2.4.25 (Debian)")
+
+    def test_target_captured(self):
+        facts, _ = extract("nikto", "real-nikto-dvwa-20260811.txt")
+        targets = find_facts(facts, "note", nikto_target="127.0.0.1")
+        self.assertEqual(len(targets), 1)
+
+    def test_osvdb_findings_preserved_verbatim_in_raw(self):
+        # nikto 2.6.0 prefixes findings with [OSVDB-id] (e.g.
+        # "+ [006333] /login.php: …") — the raw capture is preserved verbatim;
+        # this pins it. (This 2026-08-11 capture completed cleanly within
+        # maxtime, so it has no "+ ERROR:" line; the plus-sign ERROR format is
+        # pinned in FormatSampleTest.test_nikto.)
+        raw = fixture("real-nikto-dvwa-20260811.txt")
+        for needle in ("[006333] /login.php: Admin login page/section found.",
+                       "[600050] Apache/2.4.25 appears to be outdated",
+                       "[750500] /config/: Directory indexing found."):
+            self.assertIn(needle, raw)
+
+    def test_osvdb_findings_parsed(self):
+        """Extractor fix (2026-08-11): [OSVDB-id] findings are lifted into
+        facts/warnings, not just preserved in raw. Robust across captures:
+        warning presence varies (a clean scan has none)."""
+        facts, warnings = extract("nikto", "real-nikto-dvwa-20260811.txt")
+        # path finding with osvdb id
+        login = find_facts(facts, "path", nikto_osvdb="006333")
+        self.assertEqual(len(login), 1)
+        self.assertEqual(login[0]["value"]["path"], "/login.php")
+        # note finding without a path (outdated server banner)
+        outdated = find_facts(facts, "note", nikto_osvdb="600050")
+        self.assertEqual(len(outdated), 1)
+        self.assertIn("outdated", outdated[0]["value"]["finding"])
+        # if warnings exist they must carry the ERROR marker (both signs)
+        for w in warnings:
+            self.assertTrue(w.startswith("nikto: ERROR:"), w)
+
+
 class FormatSampleTest(unittest.TestCase):
-    """Documented-format conformance (no real lab capture available for these)."""
+    """Documented-format conformance.
+
+    burp has no real capture yet (see fixtures/README.md); ffuf/nikto now also
+    have REAL captures covered by FfufRealFixtureTest/NiktoRealFixtureTest —
+    these samples pin legacy-format handling (FUZZ substitution, '- ERROR'
+    warnings) that the real 2026-08-10 captures don't exercise.
+    """
 
     def test_ffuf_json_lines(self):
         sample = ('{"input":{"FUZZ":"admin"},"status":301,"length":312,'
@@ -163,6 +251,11 @@ class FormatSampleTest(unittest.TestCase):
         self.assertEqual(len(find_facts(facts, "version")), 1)
         self.assertEqual(len(find_facts(facts, "path")), 1)
         self.assertTrue(any("ERROR" in w for w in warnings))
+        # nikto 2.6.0 prints errors with '+' too (real capture 2026-08-10)
+        facts2, warnings2 = EXTRACTORS["nikto"](
+            "+ Server: Apache/2.4.25 (Debian)\n"
+            "+ ERROR: Host maximum execution time of 90 seconds reached\n")
+        self.assertTrue(any("ERROR" in w for w in warnings2))
 
 
 class FaultInjectionTest(unittest.TestCase):
@@ -269,6 +362,35 @@ class ParsePipelineTest(unittest.TestCase):
         raw = self._write_fixture("real-gobuster-dvwa-20260809.txt")
         res = parse_tool_output(self.conn, self.mission_id, "gobuster", raw)
         self.assertGreaterEqual(len(res["facts"]), 11)
+
+    def test_pipeline_ffuf_real(self):
+        raw = self._write_fixture("real-ffuf-dvwa-20260811.jsonl")
+        res = parse_tool_output(self.conn, self.mission_id, "ffuf", raw)
+        self.assertEqual(len(res["facts"]), 9)
+        rows = self.conn.execute(
+            "SELECT * FROM facts WHERE mission_id=?", (self.mission_id,)).fetchall()
+        self.assertEqual(len(rows), 9)
+        # STRUCTURAL RULE: zero facts without evidence_ref + sha256
+        bad = [r for r in rows if not r["evidence_ref"] or not r["sha256"]]
+        self.assertEqual(bad, [], "every fact must carry evidence_ref + sha256")
+        self.assertEqual(res["sha256"],
+                         sha256_bytes(fixture_bytes("real-ffuf-dvwa-20260811.jsonl")))
+
+    def test_pipeline_nikto_real(self):
+        raw = self._write_fixture("real-nikto-dvwa-20260811.txt")
+        res = parse_tool_output(self.conn, self.mission_id, "nikto", raw)
+        # Extractor fix 2026-08-11: [OSVDB-id] findings are lifted into facts
+        # (banner 1 + target 1 + 13 OSVDB findings + platform note = 16).
+        # This fresh capture completed cleanly within maxtime -> 0 warnings
+        # (the ERROR->warning path is covered by FormatSampleTest + the
+        # 20260810 capture, which hit the 90s maxtime).
+        self.assertEqual(len(res["facts"]), 16)
+        self.assertEqual(len(res["warnings"]), 0)
+        row = self.conn.execute(
+            "SELECT value_json FROM facts WHERE mission_id=? AND "
+            "value_json LIKE '%006333%'", (self.mission_id,)).fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn("/login.php", row["value_json"])
 
     def test_pipeline_unknown_tool_raises(self):
         with self.assertRaises(ParseError):

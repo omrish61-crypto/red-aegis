@@ -417,3 +417,78 @@ ro-write rejection, rw FK enforcement, pc missing-args ×2.
 
 **Final state:** suite 133/133 · all control findings closed · docs:
 CONTROL-REPORT-CODE.md + CONTROL-REPORT-POLICY.md committed · commit follows.
+
+---
+
+## 2026-08-11 — Overnight closure round (operator asleep; full autonomy, $10 budget)
+
+**Mandate:** close the remaining acceptance gaps (G1 stress, G4 rollover,
+real ffuf/burp/nikto captures, live production write-back) + 3 real-user
+dashboard tests. Authorized: anything except faking data. Control agents
+dispatched per user instruction ("create control over the agents").
+
+### 1. 48-turn lab engagement (G1/G4 stress) — PASS
+- `scripts/engagement_driver.py` (new, committed): automated engagement —
+  48 reasoning turns on deepseek-v4-flash interleaved with 8 REAL tool phases
+  (nmap ×2, gobuster, ffuf, nikto, nuclei, sqlmap, ZAP) against the authorized
+  lab (127.0.0.1:8001/3000/8080). Driver NEVER executes model-proposed
+  commands; runs only its whitelisted scans; logs everything to
+  `<state>/engagement-log.jsonl`; state in the INTECTED DB.
+- Mission ENG-OVERNIGHT-20260810-235627: **48/48 turns, 2490.8s wall**,
+  12 tasks (10 completed / 1 blocked / 1 pending), 22 approved commands
+  **22/22 unique**, **20 duplicate re-proposals rejected** (anti-loop guard),
+  0 out-of-scope / 0 aggressive bypasses, **0 reasoning errors / 0 parse
+  errors**, digest grew **674 → 3366 chars (+399%) monotonically** — G1 PASS,
+  G4 PASS (independently confirmed by CONTROL-REPORT-ENGAGEMENT.md, APPROVED).
+- QA events (honest, fixed): driver crashed at turn 6 (phase dispatch bug —
+  `PHASES` bound function-name strings; fixed by resolving `RUNNERS`) and was
+  relaunched; sqlmap timed out at 480s (CPU), ZAP container arg issue
+  (`/zap/wrk`), gobuster/ffuf/nuclei hit missing kali wordlists/templates —
+  all logged honestly, no faking.
+- Full report: docs/ENGAGEMENT-REPORT.md.
+
+### 2. Real captures + nikto extractor fix (G2) — DONE
+- Worker B produced real ffuf (DVWA 9 paths, JuiceShop 16 paths with -ac) +
+  nikto 2.6.0 captures; tests added.
+- **Real extractor gap found & FIXED**: nikto 2.6.0 prints `[OSVDB-id]`
+  prefixed findings and `+ ERROR:` — the extractor now lifts them into facts
+  (`nikto_osvdb`) and warnings (both signs); 16 facts from the real capture,
+  regression-tested (intected/parsing/extractors/nikto.py).
+- Control verdict NEEDS-FIX on freshness (captures dated 2026-08-10 23:56, not
+  08-11) → **fix-forward: fresh scans re-run 2026-08-11 01:12**
+  (real-ffuf-dvwa-20260811.jsonl sha256 ef6f6f08…, real-nikto-dvwa-20260811.txt
+  sha256 c0312733…), tests + README provenance updated, sha256s verified.
+  Suite 141/141.
+- burp: honestly remains a documented-format sample (no burp CLI on this host).
+
+### 3. LIVE production write-back — PASS (operator-authorized)
+- Worker C: pre-flight (journal_mode=wal, integrity_check=ok, daemon :9292
+  listening) → real nmap scan evidence (Apache httpd 2.4.25 on :8001) →
+  `pc write` (mission WB-LIVE, scope gate passed) → **finding 413** in the
+  production pentest.db (runs 35→36, findings 412→413) → independent readback
+  + post-write integrity_check=ok + daemon healthy. Docs/WRITEBACK-LIVE.md;
+  control APPROVED (CONTROL-REPORT-WRITEBACK.md).
+
+### 4. Real-user dashboard tests (operator request) — 4/4 PASS
+- docs/DASHBOARD-USER-TESTS.md + screenshots/: TEST 1 Process view (task tree
+  14, command queue 22, pill connected) · TEST 2 Results + evidence modal
+  (sha256 d1ccdc1d2b4a… + "✓ verified on disk" + raw payload) · TEST 3 Mission
+  view + auth (401 no/wrong token) · TEST 4 live round-trip (CLI task add →
+  appears on dashboard within the 3s poll).
+- QA event: the earlier temp-state dashboard served a deleted-inode DB (temp
+  cleanup replaced the file while the process held it open) → restarted on the
+  REAL state dir (~/.intected); documented, not a project defect.
+- UX note: facts synced from pentest-core carry run-relative evidence paths
+  (verified-integrity sha256 intact; on-disk verification is for local-evidence
+  facts).
+
+### 5. Control batch (deleg_a5b768a6) — 3/3 complete
+- CONTROL-REPORT-ENGAGEMENT.md: APPROVED (G1/G4 PASS, numbers match ground
+  truth exactly, 6 cosmetic discrepancies).
+- CONTROL-REPORT-WRITEBACK.md: APPROVED.
+- CONTROL-REPORT-FIXTURES.md: NEEDS-FIX on freshness → closed by fix-forward
+  (fresh 2026-08-11 captures, section 2 above).
+
+**Final state:** suite 141/141 · scorecard 92.9% weighted (G1 95, G2 95,
+G3 90, G4 90, G5 95) · all plan phases P0–P4 + stress/fixtures/write-back
+delivered and audited · commit follows.
