@@ -492,3 +492,11 @@ dispatched per user instruction ("create control over the agents").
 **Final state:** suite 141/141 · scorecard 92.9% weighted (G1 95, G2 95,
 G3 90, G4 90, G5 95) · all plan phases P0–P4 + stress/fixtures/write-back
 delivered and audited · commit follows.
+
+**Post-commit note (01:17):** one transient suite failure (1 failed / 140
+passed) occurred once at ~01:16, immediately before a doc-only commit — no code
+had changed since the previous green run. Consistent with the known arsenal
+WSL-probe flake (kali was busy with the fresh 01:12 ffuf/nikto scans). It did
+not reproduce in 4 subsequent runs (141/141 each; `lastfailed={}`). The exact
+test name was cleared from the pytest cache by the passing re-run — recorded
+honestly rather than guessed.
