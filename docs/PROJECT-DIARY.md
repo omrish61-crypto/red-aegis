@@ -585,3 +585,27 @@ Start-test button, disabled until the mission has at least one target.
   row written.
 - Tests: 169 → 173 (start endpoint: no-targets 422, creates tasks, idempotent,
   auth 401).
+
+---
+
+## 2026-08-11 02:30–03:00 — Scan assignments view + target removal + clearer messages
+
+**Requests (live feedback loop):** (1) "test started — 0 scan task(s)" looked
+like nothing was assigned → show WHICH scans run against WHICH target;
+(2) "אין אפשרות להסיר מטרות" → add target removal to the dashboard.
+
+- **Scan assignments table** (Targets card): target | scan task | status,
+  filtered to CURRENT scope targets only (orphaned tasks for removed targets
+  hidden) — answers "what runs against what" directly on screen.
+- **Message fix**: second Start-test click now reports
+  "all N target(s) already have scan task(s) — see scan assignments below"
+  (db.start_mission_test returns created AND existing counts; idempotent).
+- **Target removal**: ✕ on every scope chip → DELETE
+  /api/missions/{id}/targets?target=… (auth'd; 422 when not in scope; CIDR
+  survives URL-encoding) → chips + assignments + Start-test disabled-state all
+  update live; audited (mission.remove_target). Removing the last target
+  re-disables the Start test button.
+- QA events: an orphaned uvicorn child (survivor of a killed dashboard) held
+  :8765 in a bad state — killed the whole tree before restart; dashboard
+  verified LISTENING + API 200.
+- Tests: 173 → 176 (remove target, CIDR roundtrip, auth 401).

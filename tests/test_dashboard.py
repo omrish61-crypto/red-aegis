@@ -164,6 +164,38 @@ class ApiTest(unittest.TestCase):
                              json={"target": "10.0.0.5"})
         self.assertEqual(r.status_code, 401)
 
+    def test_remove_target(self):
+        self.client.post(f"/api/missions/{self.mid}/targets",
+                         params={"token": self.token},
+                         json={"target": "10.0.0.5"})
+        r = self.client.delete(
+            f"/api/missions/{self.mid}/targets",
+            params={"token": self.token, "target": "10.0.0.5"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("10.0.0.5", r.json()["scope"])
+        # removing again -> 422 (not in scope)
+        r = self.client.delete(
+            f"/api/missions/{self.mid}/targets",
+            params={"token": self.token, "target": "10.0.0.5"})
+        self.assertEqual(r.status_code, 422)
+
+    def test_remove_target_cidr_roundtrip(self):
+        # CIDR contains '/', must survive URL-encoded query param roundtrip
+        r = self.client.post(f"/api/missions/{self.mid}/targets",
+                             params={"token": self.token},
+                             json={"target": "192.168.1.0/24"})
+        self.assertEqual(r.status_code, 200)
+        r = self.client.delete(
+            f"/api/missions/{self.mid}/targets",
+            params={"token": self.token, "target": "192.168.1.0/24"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("192.168.1.0/24", r.json()["scope"])
+
+    def test_remove_target_requires_auth(self):
+        r = self.client.delete(f"/api/missions/{self.mid}/targets",
+                               params={"target": "10.0.0.5"})
+        self.assertEqual(r.status_code, 401)
+
     def test_start_test_requires_targets(self):
         # a mission with an empty scope must refuse to start (422)
         c2 = db.connect(self._tmp.name)
@@ -193,17 +225,15 @@ class ApiTest(unittest.TestCase):
         self.assertTrue(any("Run penetration test" in t for t in titles))
 
     def test_start_test_idempotent(self):
-        for _ in range(2):
-            r = self.client.post(f"/api/missions/{self.mid}/start",
-                                 params={"token": self.token})
-            self.assertEqual(r.status_code, 200)
-        # second start creates nothing new (deduped by task title)
-        bundle = self.client.get(f"/api/missions/{self.mid}",
+        first = self.client.post(f"/api/missions/{self.mid}/start",
                                  params={"token": self.token}).json()
-        titles = [t["title"] for t in bundle["tasks"]]
-        self.assertEqual(
-            sum(1 for t in titles if "Run penetration test" in t),
-            len({t for t in titles if "Run penetration test" in t}))
+        self.assertGreaterEqual(first["tasks_created"], 1)
+        self.assertEqual(first["tasks_existing"], 0)
+        second = self.client.post(f"/api/missions/{self.mid}/start",
+                                  params={"token": self.token}).json()
+        # second start creates nothing new — reports them as existing
+        self.assertEqual(second["tasks_created"], 0)
+        self.assertGreaterEqual(second["tasks_existing"], 1)
 
     def test_start_test_requires_auth(self):
         r = self.client.post(f"/api/missions/{self.mid}/start")

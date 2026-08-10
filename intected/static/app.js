@@ -92,6 +92,7 @@ function render() {
   let hosts = [];
   try { hosts = JSON.parse(m.allowed_hosts_json); } catch (e) {}
   renderTargets(hosts);
+  renderScanAssignments(b.tasks, hosts);
   $("mission-dl").innerHTML =
     `<dt>id</dt><dd>${m.id}</dd><dt>name</dt><dd>${esc(m.name)}</dd>
      <dt>status</dt><dd>${esc(m.status)}</dd>
@@ -149,10 +150,52 @@ function showAuthError() {
 
 function renderTargets(hosts) {
   $("scope-chips").innerHTML = (hosts && hosts.length)
-    ? hosts.map((h) => `<span class="scope-chip">${esc(h)}</span>`).join("")
+    ? hosts.map((h) =>
+        `<span class="scope-chip">${esc(h)}<button class="chip-x" title="remove ${esc(h)}" data-target="${esc(h)}">✕</button></span>`).join("")
     : '<span style="color:var(--muted)">no targets yet — add an IP, domain, or IP range</span>';
   const start = $("start-test");
   if (start) start.disabled = !(hosts && hosts.length);
+  document.querySelectorAll(".chip-x").forEach((b) => {
+    b.onclick = () => removeTarget(b.dataset.target);
+  });
+}
+
+async function removeTarget(target) {
+  const msg = $("target-msg");
+  msg.textContent = "";
+  const missionId = document.querySelector("#mission-select").value;
+  if (!missionId) { msg.textContent = "select a mission first"; return; }
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  try {
+    const res = await fetch(
+      `/api/missions/${missionId}/targets?target=${encodeURIComponent(target)}`, {
+        method: "DELETE",
+        headers: { "X-INTECTED-Token": token },
+      });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = data.detail || `error ${res.status}`; return; }
+    renderTargets(data.scope);
+    msg.textContent = `removed ${data.target}`;
+    msg.className = "target-msg ok";
+  } catch (e) {
+    msg.textContent = "request failed: " + e.message;
+  }
+}
+
+function renderScanAssignments(tasks, hosts) {
+  const PREFIX = "Run penetration test against ";
+  const inScope = new Set(hosts || []);
+  const rows = tasks
+    .filter((t) => t.title && t.title.startsWith(PREFIX))
+    .map((t) => ({ target: t.title.slice(PREFIX.length), task: t.title, status: t.status }))
+    .filter((r) => inScope.has(r.target))  // only current-scope targets
+    .sort((a, b) => a.target.localeCompare(b.target));
+  const tbody = document.querySelector("#scan-assign tbody");
+  if (!tbody) return;
+  tbody.innerHTML = rows.length
+    ? rows.map((r) =>
+        `<tr><td class="mono">${esc(r.target)}</td><td>${esc(r.task)}</td><td>${badge(r.status)}</td></tr>`).join("")
+    : '<tr><td colspan="3" style="color:var(--muted)">no scan tasks yet — add targets and click Start test</td></tr>';
 }
 
 async function startTest(ev) {
@@ -169,7 +212,11 @@ async function startTest(ev) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { msg.textContent = data.detail || `error ${res.status}`; return; }
-    msg.textContent = `test started — ${data.tasks_created} scan task(s) created for ${data.targets.length} target(s)`;
+    if (data.tasks_created > 0) {
+      msg.textContent = `test started — ${data.tasks_created} scan task(s) created for ${data.targets.length} target(s) (see scan assignments below)`;
+    } else {
+      msg.textContent = `all ${data.targets.length} target(s) already have scan task(s) — see scan assignments below (${data.tasks_existing || 0} present)`;
+    }
     msg.className = "target-msg ok";
     await loadBundle();
   } catch (e) {

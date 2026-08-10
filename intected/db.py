@@ -156,10 +156,34 @@ def add_mission_target(conn, mission_id: int, target: str) -> list[str]:
     return hosts
 
 
-def start_mission_test(conn, mission_id: int) -> tuple[list[str], int]:
+def remove_mission_target(conn, mission_id: int, target: str) -> list[str]:
+    """Remove a target from a mission's allowed-hosts scope.
+
+    Returns the updated scope list. Raises ValueError if the target is not in
+    the scope. Operator action — audited.
+    """
+    mission = get_mission(conn, mission_id)
+    if mission is None:
+        raise KeyError(mission_id)
+    hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+    if not isinstance(hosts, list):
+        hosts = []
+    if target not in hosts:
+        raise ValueError(f"target {target!r} is not in the mission scope")
+    hosts = [h for h in hosts if h != target]
+    conn.execute("UPDATE missions SET allowed_hosts_json=? WHERE id=?",
+                 (json.dumps(hosts), mission_id))
+    conn.commit()
+    log_audit(conn, "dashboard", "mission.remove_target",
+              f"mission={mission_id} target={target}")
+    return hosts
+
+
+def start_mission_test(conn, mission_id: int) -> tuple[list[str], int, int]:
     """Create scan tasks for every scope target (deduped by title).
 
-    Returns (targets, created_count). Raises ValueError if the mission has no
+    Returns (targets, created_count, existing_count) — existing are targets
+    that already have their scan task. Raises ValueError if the mission has no
     targets. Only the dashboard/operator calls this — the reasoning engine
     never self-starts.
     """
@@ -169,17 +193,20 @@ def start_mission_test(conn, mission_id: int) -> tuple[list[str], int]:
     hosts = json.loads(mission["allowed_hosts_json"] or "[]")
     if not isinstance(hosts, list) or not hosts:
         raise ValueError("mission has no targets — add a target first")
-    existing = {r["title"] for r in get_tasks(conn, mission_id)}
+    existing_titles = {r["title"] for r in get_tasks(conn, mission_id)}
     created = 0
+    existing = 0
     for target in hosts:
         title = f"Run penetration test against {target}"
-        if title in existing:
+        if title in existing_titles:
+            existing += 1
             continue
         add_task(conn, mission_id, title, "scan")
         created += 1
     log_audit(conn, "dashboard", "mission.start_test",
-              f"mission={mission_id} targets={len(hosts)} tasks_created={created}")
-    return hosts, created
+              f"mission={mission_id} targets={len(hosts)} "
+              f"tasks_created={created} tasks_existing={existing}")
+    return hosts, created, existing
 
 
 def list_missions(conn) -> list[sqlite3.Row]:
