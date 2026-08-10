@@ -140,6 +140,27 @@ def create_app(token: str | None = None,
             conn.close()
         return {"mission_id": mission_id, "scope": hosts, "target": normalized}
 
+    @app.post("/api/missions/{mission_id}/start")
+    def api_start_test(mission_id: int,
+                       token: str | None = Query(None),
+                       x_intected_token: str | None = Header(None),
+                       origin: str | None = Header(None)):
+        """Start the test: create scan tasks for every scope target."""
+        if not _authorized(token or x_intected_token, origin):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        conn = _open()
+        try:
+            try:
+                targets, created = db.start_mission_test(conn, mission_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
+            except KeyError:
+                raise HTTPException(status_code=404, detail="mission not found")
+        finally:
+            conn.close()
+        return {"mission_id": mission_id, "targets": targets,
+                "tasks_created": created}
+
     @app.get("/api/missions/{mission_id}/evidence/{fact_id}")
     def api_evidence(mission_id: int, fact_id: int,
                      token: str | None = Query(None),

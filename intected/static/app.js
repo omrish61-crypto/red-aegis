@@ -136,6 +136,8 @@ document.querySelectorAll(".tab").forEach((t) => {
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("target-form");
   if (form) form.addEventListener("submit", addTarget);
+  const start = document.getElementById("start-test");
+  if (start) start.addEventListener("click", startTest);
 });
 
 function showAuthError() {
@@ -149,6 +151,30 @@ function renderTargets(hosts) {
   $("scope-chips").innerHTML = (hosts && hosts.length)
     ? hosts.map((h) => `<span class="scope-chip">${esc(h)}</span>`).join("")
     : '<span style="color:var(--muted)">no targets yet — add an IP, domain, or IP range</span>';
+  const start = $("start-test");
+  if (start) start.disabled = !(hosts && hosts.length);
+}
+
+async function startTest(ev) {
+  ev.preventDefault();
+  const msg = $("target-msg");
+  msg.textContent = "";
+  const missionId = document.querySelector("#mission-select").value;
+  if (!missionId) { msg.textContent = "select a mission first"; return; }
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  try {
+    const res = await fetch(`/api/missions/${missionId}/start`, {
+      method: "POST",
+      headers: { "X-INTECTED-Token": token },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { msg.textContent = data.detail || `error ${res.status}`; return; }
+    msg.textContent = `test started — ${data.tasks_created} scan task(s) created for ${data.targets.length} target(s)`;
+    msg.className = "target-msg ok";
+    await loadBundle();
+  } catch (e) {
+    msg.textContent = "request failed: " + e.message;
+  }
 }
 
 async function addTarget(ev) {

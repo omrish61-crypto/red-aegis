@@ -156,6 +156,32 @@ def add_mission_target(conn, mission_id: int, target: str) -> list[str]:
     return hosts
 
 
+def start_mission_test(conn, mission_id: int) -> tuple[list[str], int]:
+    """Create scan tasks for every scope target (deduped by title).
+
+    Returns (targets, created_count). Raises ValueError if the mission has no
+    targets. Only the dashboard/operator calls this — the reasoning engine
+    never self-starts.
+    """
+    mission = get_mission(conn, mission_id)
+    if mission is None:
+        raise KeyError(mission_id)
+    hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+    if not isinstance(hosts, list) or not hosts:
+        raise ValueError("mission has no targets — add a target first")
+    existing = {r["title"] for r in get_tasks(conn, mission_id)}
+    created = 0
+    for target in hosts:
+        title = f"Run penetration test against {target}"
+        if title in existing:
+            continue
+        add_task(conn, mission_id, title, "scan")
+        created += 1
+    log_audit(conn, "dashboard", "mission.start_test",
+              f"mission={mission_id} targets={len(hosts)} tasks_created={created}")
+    return hosts, created
+
+
 def list_missions(conn) -> list[sqlite3.Row]:
     return conn.execute("SELECT id, name, status, created_at, auth_ref "
                         "FROM missions ORDER BY id DESC").fetchall()

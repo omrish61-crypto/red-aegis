@@ -564,3 +564,24 @@ RANGE)" — add a target-entry field to the dashboard.
 - Also cleaned 4 empty test-artifact missions (id 4-7, "LAB") that the old
   pre-fix CLI tests had written into the real state DB yesterday 22:33.
 - Tests: 157 → 169 (8 validator + 5 API endpoint tests).
+
+---
+
+## 2026-08-11 02:15–02:30 — "Start test" button (disabled until a target is entered)
+
+**Request:** "הוסף כפתור התחל בדיקה... הכפתור יהיה כבוי עד שיוכנס מטרה" — a
+Start-test button, disabled until the mission has at least one target.
+
+- Backend: `db.start_mission_test()` — creates a "Run penetration test
+  against <target>" scan task per scope target (deduped by title, idempotent),
+  audited (mission.start_test); `POST /api/missions/{id}/start` (auth'd; 422
+  when no targets; 404 unknown mission).
+- Frontend: "Start test" button (primary green) in the Targets card —
+  `renderTargets()` sets `disabled = no targets`; on click → POST → green
+  message "test started — N scan task(s) created for M target(s)" → task tree
+  refreshes.
+- Live-verified in the browser: disabled with empty scope, enabled after
+  target add, click → 6 tasks created for the 6 targets, tree updated, audit
+  row written.
+- Tests: 169 → 173 (start endpoint: no-targets 422, creates tasks, idempotent,
+  auth 401).
