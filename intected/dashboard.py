@@ -182,6 +182,25 @@ def create_app(token: str | None = None,
         return {"mission_id": mission_id, "targets": targets,
                 "tasks_created": created, "tasks_existing": existing}
 
+    @app.get("/api/missions/{mission_id}/plan")
+    def api_plan(mission_id: int,
+                 token: str | None = Query(None),
+                 x_intected_token: str | None = Header(None),
+                 origin: str | None = Header(None)):
+        """Evidence graph + ranked attack plan (methodology 11/12)."""
+        if not _authorized(token or x_intected_token, origin):
+            raise HTTPException(status_code=401, detail="unauthorized")
+        from .evidence import _default_target
+        from .planner import plan_for_mission
+        conn = _open()
+        try:
+            target = _default_target(conn, mission_id)
+            if target is None:
+                raise HTTPException(status_code=404, detail="mission not found")
+            return plan_for_mission(conn, mission_id, target)
+        finally:
+            conn.close()
+
     @app.get("/api/missions/{mission_id}/evidence/{fact_id}")
     def api_evidence(mission_id: int, fact_id: int,
                      token: str | None = Query(None),

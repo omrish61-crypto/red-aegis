@@ -42,6 +42,25 @@ P3 ✅  dashboard: process + results + mission views       (2026-08-10, G4a met)
 P4 ✅  pentest-core integration + hardening + scorecard   (2026-08-10, G4b met)
 ```
 
+## Evidence-based planning (methodology 11-13)
+
+```
+intected evidence --mission N          # structured per-target model (JSON)
+intected plan --mission N              # ranked attack plan from evidence
+```
+
+- **Evidence Graph** (intected/evidence.py): composes the fact store into a
+  per-target model — services, technologies (with confidence), WAF indicators,
+  attack surface — every element tracing to sha256 evidence.
+- **Scoring** (score_finding): Confidence x Impact x Exploitability x Exposure
+  -> priority P0-P3.
+- **Attack-Plan Engine** (intected/planner.py): evidence-based branch selection
+  (web_api vs network) and ranked priorities (Auth/AuthZ -> JWT -> API authz ->
+  GraphQL -> Injection -> Client-side -> Infra). THE RULE: every finding leads
+  to a test hypothesis, every test is based on a previous finding (each plan
+  item carries `based_on` fact ids).
+- Dashboard: **Plan** tab renders the graph + ranked plan live.
+
 ## Secure key store (secrets vault)
 
 ```

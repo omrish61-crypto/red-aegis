@@ -131,6 +131,7 @@ document.querySelectorAll(".tab").forEach((t) => {
     document.querySelectorAll(".view").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
     $("view-" + t.dataset.tab).classList.add("active");
+    if (t.dataset.tab === "plan") loadPlan();
   };
 });
 
@@ -256,9 +257,48 @@ async function addTarget(ev) {
   }
 }
 
+async function loadPlan() {
+  const missionId = document.querySelector("#mission-select").value;
+  if (!missionId) return;
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  try {
+    const res = await fetch(`/api/missions/${missionId}/plan`, {
+      headers: { "X-INTECTED-Token": token },
+    });
+    if (!res.ok) { $("plan-graph").textContent = "plan unavailable (" + res.status + ")"; return; }
+    const data = await res.json();
+    const g = data.graph, p = data.plan;
+    const services = g.services.map((s) =>
+      `<span class="scope-chip">${s.port}/${s.protocol}${s.banner ? " " + esc(s.banner.split(" ")[0]) : ""}</span>`).join("");
+    const techs = g.technologies.map((t) =>
+      `<span class="scope-chip">${esc(t.name)} ${(t.confidence * 100).toFixed(0)}%</span>`).join("");
+    $("plan-graph").innerHTML =
+      `<dl class="plan-dl">
+        <dt>target</dt><dd class="mono">${esc(p.target)}</dd>
+        <dt>branch</dt><dd>${esc(p.branch)}</dd>
+        <dt>services</dt><dd>${services || "—"}</dd>
+        <dt>technologies</dt><dd>${techs || "—"}</dd>
+        <dt>waf</dt><dd>${g.waf.detected ? "detected (" + g.waf.confidence.toFixed(2) + ")" : "no indicators"}</dd>
+        <dt>attack surface</dt><dd>${g.attack_surface.map((x) => `<span class="scope-chip">${esc(x)}</span>`).join("") || "—"}</dd>
+       </dl>`;
+    $("plan-items").innerHTML = p.plan.map((item) =>
+      `<div class="plan-item">
+        <div class="plan-rank">P${item.rank}</div>
+        <div>
+          <strong>${esc(item.area)}</strong>
+          <div class="muted">${esc(item.hypothesis)}</div>
+          ${item.commands.length ? `<div class="mono small">${esc(item.commands[0])}</div>` : ""}
+        </div>
+      </div>`).join("") || '<div style="color:var(--muted)">no plan yet — gather evidence first</div>';
+  } catch (e) {
+    $("plan-graph").textContent = "plan error: " + e.message;
+  }
+}
+
 async function tick() {
   try {
     await loadBundle();
+    if (document.querySelector("#view-plan").classList.contains("active")) await loadPlan();
   } catch (e) {
     $("conn").textContent = "error: " + e.message;
     $("conn").className = "pill err";

@@ -23,6 +23,7 @@
     <button class="tab active" data-tab="process">Process</button>
     <button class="tab" data-tab="results">Results</button>
     <button class="tab" data-tab="mission">Mission</button>
+    <button class="tab" data-tab="plan">Plan</button>
   </nav>
 
   <main>
@@ -90,6 +91,19 @@
           <thead><tr><th>target</th><th>scan task</th><th>status</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+    <!-- PLAN (evidence-based attack plan) -->
+    <section id="view-plan" class="view">
+      <div class="grid-2">
+        <div class="card">
+          <h2>Evidence Graph <span class="hint">what we know</span></h2>
+          <div id="plan-graph"></div>
+        </div>
+        <div class="card">
+          <h2>Ranked Plan <span class="hint">what to test, in order</span></h2>
+          <div id="plan-items"></div>
+        </div>
       </div>
     </section>
   </main>

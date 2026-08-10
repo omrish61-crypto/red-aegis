@@ -239,6 +239,23 @@ class ApiTest(unittest.TestCase):
         r = self.client.post(f"/api/missions/{self.mid}/start")
         self.assertEqual(r.status_code, 401)
 
+    def test_plan_endpoint(self):
+        """Evidence-based plan API (methodology 11/12): graph + ranked plan."""
+        r = self.client.get(f"/api/missions/{self.mid}/plan",
+                            params={"token": self.token})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("graph", data)
+        self.assertIn("plan", data)
+        self.assertEqual(data["plan"]["target"], "127.0.0.1")
+        # every plan item is evidence-based (the core rule)
+        for item in data["plan"]["plan"]:
+            self.assertTrue(item["based_on"])
+
+    def test_plan_requires_auth(self):
+        r = self.client.get(f"/api/missions/{self.mid}/plan")
+        self.assertEqual(r.status_code, 401)
+
     def test_evidence_endpoint(self):
         r = self.client.get(f"/api/missions/{self.mid}/evidence/1",
                             params={"token": self.token})

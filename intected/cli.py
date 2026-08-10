@@ -237,6 +237,63 @@ def cmd_audit(args) -> int:
     return EXIT_OK
 
 
+def cmd_evidence(args) -> int:
+    """Evidence graph for a mission (methodology 12) — structured per-target
+    model: services, technologies, WAF indicators, attack surface."""
+    import json as _json
+    from .evidence import _default_target, build_evidence_graph
+    conn = _open_db()
+    try:
+        target = args.target or _default_target(conn, args.mission) or f"mission-{args.mission}"
+        graph = build_evidence_graph(conn, args.mission, target)
+        print(_json.dumps(graph.to_dict(), indent=1, ensure_ascii=False))
+        return EXIT_OK
+    except Exception as exc:
+        print(f"evidence error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    finally:
+        conn.close()
+
+
+def cmd_plan(args) -> int:
+    """Attack plan for a mission (methodology 11) — evidence-based, ranked:
+    every finding leads to a test hypothesis, every test is based on evidence."""
+    from .evidence import _default_target
+    from .planner import plan_for_mission
+    conn = _open_db()
+    try:
+        target = args.target or _default_target(conn, args.mission) or f"mission-{args.mission}"
+        data = plan_for_mission(conn, args.mission, target)
+        graph, plan = data["graph"], data["plan"]
+        print(f"TARGET : {plan['target']}")
+        print(f"BRANCH : {plan['branch']}   (web_api | network)")
+        print(f"STACK  : web={plan['stack']['web']} api={plan['stack']['api']} "
+              f"graphql={plan['stack']['graphql']} jwt={plan['stack']['jwt']} "
+              f"network={plan['stack']['network']}")
+        print(f"SERVICES: " + ", ".join(
+            f"{s['port']}/{s['protocol']}" + (f" {s['banner'][:28]}" if s['banner'] else "")
+            for s in graph["services"]) or "none")
+        print(f"TECH   : " + ", ".join(
+            f"{t['name']} ({t['confidence']})" for t in graph["technologies"]) or "none")
+        print(f"WAF    : {'detected' if graph['waf']['detected'] else 'no indicators'} "
+              f"(conf {graph['waf']['confidence']}) {graph['waf']['evidence']}")
+        print(f"SURFACE: " + ", ".join(graph["attack_surface"]) or "none")
+        print()
+        print("RANKED PLAN (every test is based on evidence):")
+        for item in plan["plan"]:
+            print(f"  P{item['rank']} {item['area']}")
+            print(f"     why: {item['hypothesis']}")
+            if item["commands"]:
+                for c in item["commands"][:3]:
+                    print(f"     cmd : {c}")
+        return EXIT_OK
+    except Exception as exc:
+        print(f"plan error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    finally:
+        conn.close()
+
+
 def cmd_keys(args) -> int:
     """Secure key store (secrets vault): set/get/list/rm/import.
 
@@ -492,6 +549,16 @@ def main(argv: list[str] | None = None) -> int:
                    help="probe every tool on its real host (kali WSL2 / docker)")
     p.add_argument("--tool", help="show one arsenal entry + its live status")
     p.set_defaults(fn=cmd_arsenal)
+
+    p = sub.add_parser("evidence", help="evidence graph for a mission (structured per-target model)")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", help="optional target override")
+    p.set_defaults(fn=cmd_evidence)
+
+    p = sub.add_parser("plan", help="evidence-based attack plan for a mission (ranked)")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", help="optional target override")
+    p.set_defaults(fn=cmd_plan)
 
     p = sub.add_parser("keys", help="secure key store (DPAPI vault): set/get/list/rm/import")
     p.add_argument("action", choices=["set", "get", "list", "rm", "import"],

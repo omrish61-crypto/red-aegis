@@ -609,3 +609,38 @@ like nothing was assigned → show WHICH scans run against WHICH target;
   :8765 in a bad state — killed the whole tree before restart; dashboard
   verified LISTENING + API 200.
 - Tests: 173 → 176 (remove target, CIDR roundtrip, auth 401).
+
+---
+
+## 2026-08-11 03:10–03:50 — Evidence-based attack planning (user methodology)
+
+**Request:** implement the operator's pentest methodology: Recon →
+Fingerprinting → Attack Surface → Validation → evidence-based test plan
+(OWASP-aligned). Core rule: every finding leads to a test hypothesis; every
+test is based on a previous finding.
+
+- **intected/evidence.py** — Evidence Graph (methodology 12): per-target
+  structured model (services, technologies with confidence, WAF indicators
+  with multi-signal confidence, attack surface), composed from the fact store,
+  every element tracing to sha256 evidence. Plus `score_finding`
+  (confidence x impact x exploitability x exposure → P0-P3) and
+  `stack_profile` (branch selection).
+- **intected/planner.py** — Attack-Plan Engine (methodology 11): web_api vs
+  network branch; web priorities Auth/AuthZ → JWT → API authz → GraphQL →
+  Injection → Client-side → Infra (the exact decision tree from the doc);
+  network branch Service enum → versions → CVE correlation → config → auth →
+  validation. Every plan item carries based_on fact ids + concrete commands.
+- **CLI**: `intected evidence --mission N` (JSON graph), `intected plan
+  --mission N` (ranked plan with why + commands).
+- **Dashboard Plan tab**: evidence graph + ranked plan rendered live
+  (GET /api/missions/{id}/plan).
+- QA events: (1) web-branch false-positive fixed — stack_profile counted any
+  TCP banner as "web"; now web = http/https protocol or known web ports.
+  (2) note-path extraction regex required the quote right after the path, but
+  nikto notes are "/path: message" — fixed to match up to the colon.
+- Live verification: re-parsed the REAL nikto evidence of mission 3 with the
+  fixed extractor (16 facts incl. 12 path facts: /login.php, /config/, /docs/)
+  → the plan now correctly ranks **P1 Authentication/AuthZ** (driven by the
+  /login.php evidence) — exactly the evidence-based branching requested.
+- Tests: 176 → 185 (evidence graph aggregation, WAF signals, note-path
+  lifting, scoring, web/network branches, empty mission, plan endpoint + auth).
