@@ -227,6 +227,33 @@ def probe_all_tools() -> dict[str, str]:
 
 
 # --- Real-time log capture (addendum: the AI can't analyze unseen logs) -----
+def _stream_with_timeout(proc, timeout: int) -> list[str]:
+    """Read proc.stdout line-by-line with a HARD deadline (the read loop must
+    not outlive the timeout — chatty tools like nuclei never EOF on time)."""
+    import threading as _t
+    import time as _time
+    lines: list[str] = []
+    deadline = _time.time() + timeout
+
+    def _reader():
+        for raw in proc.stdout:
+            lines.append(raw.rstrip("\n"))
+
+    t = _t.Thread(target=_reader, daemon=True)
+    t.start()
+    remaining = deadline - _time.time()
+    t.join(max(0.1, remaining))
+    if t.is_alive():
+        proc.kill()
+        lines.append("[timeout exceeded — process killed]")
+        t.join(2)
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
+    return lines
+
+
 def execute_raw(cmd: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """Execute a raw shell command via the kali image (real-time capture).
 
@@ -236,21 +263,12 @@ def execute_raw(cmd: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     """
     import time as _time
     started = _time.time()
-    lines: list[str] = []
     try:
         proc = subprocess.Popen(
             ["wsl", "-d", "kali-linux", "-u", "root", "-e", "bash", "-lc", cmd],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             stdin=subprocess.DEVNULL, errors="replace")
-        try:
-            for raw in proc.stdout:
-                lines.append(raw.rstrip("\n"))
-        finally:
-            try:
-                proc.wait(timeout=max(1, timeout - (_time.time() - started)))
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                lines.append("[timeout exceeded — process killed]")
+        lines = _stream_with_timeout(proc, timeout)
         return {"exit": proc.returncode, "log": "\n".join(lines),
                 "log_lines": lines,
                 "elapsed_s": round(_time.time() - started, 2)}
@@ -269,7 +287,6 @@ def execute_streaming(tool: str, params: dict,
     merged = validate_params(tool, params)
     started = _time.time()
     cmd = _build_command(tool, merged)
-    lines: list[str] = []
     try:
         proc = subprocess.Popen(
             ["wsl", "-d", "kali-linux", "-u", "root", "-e", "bash", "-lc",
@@ -277,15 +294,10 @@ def execute_streaming(tool: str, params: dict,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             stdin=subprocess.DEVNULL,  # nuclei blocks on TTY stdin — close it
             errors="replace")
-        try:
-            for raw in proc.stdout:  # streams line-by-line
-                lines.append(raw.rstrip("\n"))
-        finally:
-            proc.wait(timeout=timeout)
+        lines = _stream_with_timeout(proc, timeout)
         rc = proc.returncode
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        raise ToolError(f"{tool} exceeded {timeout}s timeout")
+    except Exception as exc:
+        raise ToolError(f"{tool} execution failed: {exc}")
     return {"tool": tool, "params": merged, "exit": rc,
             "log_lines": lines, "log": "\n".join(lines),
             "elapsed_s": round(_time.time() - started, 1)}

@@ -848,3 +848,32 @@ KALI-TOOLS-POC all current.
    coverage — targeted tag runs produce findings (proven).
 4. dvwa.local (mission 1) doesn't resolve — its commands honestly fail at
    DNS (exit 6), visible in the queue.
+
+---
+
+## 2026-08-11 07:15-07:50 — Full kali tool verification (dashboard-driven)
+
+Per user request: every tool tested THROUGH the dashboard, with a FRESH
+dashboard instance after every test (restart between tests — no accumulated
+state, better performance). Driver: scripts/dashboard-tool-tests.sh (stop
+dashboard → start fresh → run ONE command via /api/commands/{id}/run →
+record → repeat).
+
+10 tool tests via the dashboard API (mission 8 queue): nmap top1000 PASS,
+nmap -sV PASS, curl headers PASS, nikto PASS (24 findings), ffuf PASS,
+whatweb PASS, wafw00f PASS, gobuster exit 1 (CORRECT — SPA wildcard refusal),
+dig PASS, sqlmap PASS (ran 151s, exit 0). All evidence persisted (16 raw
+files in mission-8 evidence).
+
+Direct tests: john CRACKED a real bcrypt hash ("?:letmein"), hashcat bench
+1880 MH/s, msfconsole prompt, masscan found 135, searchsploit 18 hits,
+tcpdump captured, sqlmap runs.
+
+REAL BUG FIXED: execute_streaming/execute_raw timeouts never fired for
+chatty tools (the read loop blocked past the deadline — nuclei ran 422s with
+a 150s timeout). Fixed with a reader-thread + hard join deadline
+(_stream_with_timeout). The old dashboard instance hung mid-run-all (server
+blocked) — restart with the fix resolved it.
+
+Docs: docs/TOOL-VERIFICATION-20260811.md (full matrix + environment fixes +
+honest notes).
