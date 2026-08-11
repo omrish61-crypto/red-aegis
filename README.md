@@ -1,6 +1,8 @@
-# INTECTED — PentestDROR Co-Pilot
+# RedAegis — AI Penetration-Testing Co-Pilot
 
-**INTECTED** is an AI penetration-testing co-pilot ("PentestDROR") that helps security
+**RedAegis** (formerly INTECTED / PentestDROR)
+
+**RedAegis** is an AI penetration-testing co-pilot that helps security
 testers, Red Teams, and cyber researchers run structured, insight-driven pentests.
 
 It maintains a **Pentest Task Tree (PTM)**, parses classic tool output (Nmap, FFUF,
