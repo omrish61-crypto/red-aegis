@@ -11,9 +11,12 @@ import xml.etree.ElementTree as ET
 from .common import bounded, dedupe_facts, note
 
 _TEXT_PORT_RE = re.compile(
-    r"^(\d+)/(tcp|udp)\s+(\w+)\s+(\S+)?\s*(.*)$", re.MULTILINE
+    r"^(\d+)/(tcp|udp)[ \t]+(\w+)[ \t]+(\S+)?[ \t]*(.*)$", re.MULTILINE
 )
 _TEXT_TITLE_RE = re.compile(r"\|_?http-title:\s*(.+)$", re.MULTILINE)
+# text-mode NSE script blocks: "|   vulners:" / "|_http-title:" etc.
+_TEXT_SCRIPT_RE = re.compile(
+    r"^\|\s*_?([a-z0-9_-]+):\s*(.*)$", re.MULTILINE)
 
 SCRIPT_VULN_MARKERS = ("VULNERABLE", "CVE-", "Exploit available", "State:")
 
@@ -90,6 +93,8 @@ def _extract_xml(text: str):
 def _extract_text(text: str):
     facts = []
     warnings = []
+    # CRLF normalization: \s-classes must never cross line boundaries
+    text = text.replace("\r\n", "\n")
     for m in _TEXT_PORT_RE.finditer(text):
         port, proto, state = m.group(1), m.group(2), m.group(3)
         rest = (m.group(5) or "").strip()
@@ -106,6 +111,32 @@ def _extract_text(text: str):
         facts.append({"fact_type": "note",
                       "value": {"tool": "nmap", "script": "http-title",
                                 "title": bounded(m.group(1))}})
+    # generic NSE script blocks (vulners, ssl-cert, ...) -> notes. http-title
+    # is handled above; continuation lines (cpe:/...) are skipped.
+    seen_scripts: set[str] = set()
+    for m in _TEXT_SCRIPT_RE.finditer(text):
+        name, first = m.group(1), m.group(2)
+        if name in ("http-title", "http-title ", "fingerprint-strings"):
+            continue
+        if "/" in name or name in seen_scripts:
+            continue
+        seen_scripts.add(name)
+        # collect the block: following indented "|" lines up to 500 chars
+        start = m.end()
+        block = [first]
+        for lm in re.finditer(r"^\|\s*(.*)$", text[start:start + 2500], re.MULTILINE):
+            line = lm.group(1).strip()
+            if not line:
+                break
+            block.append(line)
+            if len("\n".join(block)) > 500:
+                break
+        content = bounded("\n".join(block))
+        vulnish = any(marker in content for marker in SCRIPT_VULN_MARKERS)
+        facts.append({"fact_type": "note",
+                      "value": {"tool": "nmap-script", "script": name,
+                                "vulnerable": vulnish,
+                                "output": content}})
     return dedupe_facts(facts), warnings
 
 

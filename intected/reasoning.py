@@ -55,7 +55,27 @@ JSON SCHEMA (respond exactly this shape):
   },
   "open_questions": ["<question for the human tester>"]
 }
-suggested_command may be null when no command should run next."""
+suggested_command may be null when no command should run next.
+
+FEW-SHOT: NEGATIVE EXAMPLES (commands the SUPERVISOR rejects — never propose them):
+1. "hydra -l admin -P rockyou.txt 10.0.0.5 ssh"
+   REJECTED: brute-force tool not in the registry; mass credential attempts
+   are banned by supervisor policy (no availability impact, no IDS bait).
+2. "nmap -T5 -p- --min-rate 10000 10.0.0.5"
+   REJECTED: aggressive timing/rate caps — -p- requires explicit operator
+   approval and rates above the cap (300 pps) are always blocked.
+3. "sqlmap -u http://target/item?id=1 --dump --batch"
+   REJECTED: --dump extracts data (PII guard — GDPR/SOC2); the registry has
+   no data-extraction path; SELECT version()-style proof only.
+4. "nuclei -u http://target -tags unknown-fake-tag"
+   REJECTED: hallucinated flag — nuclei tags must come from the live template
+   set (intected tools probe shows real flags) or the NVD lookup.
+5. "nikto -h http://10.0.0.99"   (when 10.0.0.99 is not in the scope)
+   REJECTED: target outside the allowed scope — deny by default.
+
+The pattern: every suggestion must be a REGISTERED tool, in-scope, rate-
+bounded, evidence-based, and operator-approvable. When in doubt, propose
+nothing (suggested_command: null) and ask the tester an open_question."""
 
 _REPLY_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 

@@ -51,7 +51,7 @@ COMMAND_TEMPLATES = {
     "http_headers": "curl -skI https://{target}",
     "whatweb": "whatweb -a 3 {target}",
     "wafw00f": "wafw00f {target}",
-    "ffuf": "ffuf -u http://{target}/FUZZ -w /usr/share/wordlists/dirb/common.txt -ac -mc 200,204,301,302,307,401,403",
+    "ffuf": "ffuf -u http://{target}/FUZZ -w /usr/share/dirb/wordlists/common.txt -ac -mc 200,204,301,302,307,401,403",
     "nuclei": "nuclei -u http://{target} -severity low,medium,high,critical",
     "graphql_introspect": "curl -sk -X POST http://{target}/graphql -H 'Content-Type: application/json' -d '{{\"query\":\"{{__schema{{types{{name}}}}}}\"}}'",
     "nikto": "nikto -h http://{target} -maxtime 120s",

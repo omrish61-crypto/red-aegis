@@ -8,10 +8,11 @@ Verifies the multi-agent constraints from the spec:
 - PII: detection + redaction, DB-proof values PII-safe
 """
 
-import unittest
+import os
 import tempfile
+import unittest
 
-from intected import pii, supervisor, tools
+from intected import db, pii, supervisor, tools
 from intected.cve import cpe_from_banner
 
 
@@ -153,6 +154,38 @@ class DecisionMatrixTest(unittest.TestCase):
                                "graphql": False}, [], "10.0.0.5")
         self.assertEqual(call["tool"], "nmap_ports")
 
+    def test_honeypot_candidate_low_confidence(self):
+        """SSH-like banner on port 445 -> low confidence, passive only."""
+        from intected.matrix import honeypot_candidates, next_tool_call
+        services = [{"port": 445, "banner": "SSH-2.0-OpenSSH_8.9", "protocol": "tcp"}]
+        flagged = honeypot_candidates(services)
+        self.assertEqual(len(flagged), 1)
+        self.assertEqual(flagged[0]["looks_like"], "ssh")
+        self.assertLess(flagged[0]["confidence"], 0.5)
+        call = next_tool_call({"web": True, "waf_detected": False,
+                               "api": False, "graphql": False},
+                              [], "target.example", services=services)
+        self.assertTrue(call.get("low_confidence"))
+        self.assertIn("HONEYPOT", call["why"])
+        self.assertEqual(call["tool"], "http_headers")
+
+    def test_no_honeypot_flag_on_canonical_port(self):
+        from intected.matrix import honeypot_candidates
+        services = [{"port": 22, "banner": "SSH-2.0-OpenSSH", "protocol": "tcp"}]
+        self.assertEqual(honeypot_candidates(services), [])
+
+
+class ScoringWafTest(unittest.TestCase):
+    def test_waf_reduces_exposure(self):
+        from intected.evidence import score_finding
+        plain = score_finding(0.9, "high", exposure=1.0)
+        waf = score_finding(0.9, "high", exposure=1.0, waf=True)
+        self.assertLess(waf["exposure"], plain["exposure"])
+        self.assertLess(waf["score"], plain["score"])
+        self.assertTrue(waf["waf_discounted"])
+        self.assertEqual(plain["exposure"], 1.0)
+        self.assertAlmostEqual(waf["exposure"], 0.6)
+
 
 class WafKbTest(unittest.TestCase):
     def test_seed_and_query(self):
@@ -172,6 +205,56 @@ class WafKbTest(unittest.TestCase):
         finally:
             config.STATE_DIR = old
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class ReconPhase1Test(unittest.TestCase):
+    """Phase 1 — gradual supervised recon: staging, gating, evidence-skips."""
+
+    def setUp(self):
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        self.conn = db.connect(self._tmp.name)
+        db.init_db(self.conn)
+        self.mid = db.create_mission(self.conn, "recon", ["scanme.nmap.org"],
+                                     auth_ref="A")
+
+    def tearDown(self):
+        self.conn.close()
+        os.unlink(self._tmp.name)
+
+    def test_stage_order_and_skip_logic(self):
+        from intected import recon
+        # no evidence yet -> ports stage not covered
+        self.assertFalse(recon.stage_covered(self.conn, self.mid, "ports",
+                                             "scanme.nmap.org"))
+        db.add_fact(self.conn, self.mid, "nmap", "port",
+                    {"port": 80}, evidence_ref="x.raw", sha256="ab" * 32)
+        # port facts exist for nmap_ports -> covered now
+        self.assertTrue(recon.stage_covered(self.conn, self.mid, "ports",
+                                            "scanme.nmap.org"))
+        # a different tool's facts don't cover the ports stage
+        self.assertFalse(recon.stage_covered(self.conn, self.mid, "services",
+                                             "scanme.nmap.org"))
+
+    def test_discovered_ports(self):
+        from intected import recon
+        db.add_fact(self.conn, self.mid, "nmap", "port", {"port": 22},
+                    evidence_ref="a.raw", sha256="ab" * 32)
+        db.add_fact(self.conn, self.mid, "nmap", "port", {"port": 443},
+                    evidence_ref="b.raw", sha256="ab" * 32)
+        self.assertEqual(recon.discovered_ports(self.conn, self.mid, "x"),
+                         "22,443")
+
+    def test_out_of_scope_target_blocked_at_stage1(self):
+        from intected import recon
+        from intected.scope import ScopeViolation
+        with self.assertRaises(ScopeViolation):
+            recon.run_recon(self.conn, self.mid, "10.0.0.99")
+
+    def test_single_stage_selection(self):
+        from intected import recon
+        stages = [s["name"] for s in recon.STAGES]
+        self.assertEqual(stages, ["ports", "services", "headers", "content"])
 
 
 class ToolConfiguratorTest(unittest.TestCase):

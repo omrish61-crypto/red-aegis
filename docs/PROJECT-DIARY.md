@@ -688,3 +688,37 @@ validation, real-time stdout capture, nuclei template updates, WAF-bypass KB.
   alternative to ChromaDB/LangChain); `intected waf-kb seed|query`.
 - CLI: tools (defaults|probe), matrix, waf-kb; tests 201 -> 208.
 - Review updated: docs/ARCHITECTURE-REVIEW.md addendum section.
+
+---
+
+## 2026-08-11 05:30-06:00 — Code-improvement round (operator recommendations)
+
+Four specific recommendations, all implemented + tested (212 -> 217):
+
+1. **Honeypot detection** (matrix.py): service/port mismatch heuristic —
+   SSH-like banner on port 445 etc. flagged low-confidence (0.25) and the
+   matrix returns a PASSIVE probe only ("HONEYPOT CANDIDATE — no aggressive
+   testing"). Wired into `intected matrix` (services passed in).
+
+2. **Nmap text-mode NSE script parsing** (parsing/extractors/nmap.py):
+   vulners / ssl-cert / other script blocks -> note facts with `vulnerable`
+   flag (CVE- markers), http-title not double-captured, fingerprint-strings
+   skipped. Also FIXED the CRLF cross-line bug: `\s*` in the port regex ate
+   `\r\n` and `(.*)` captured the NEXT line (ports 8001/9090 were lost and
+   banners attached to wrong ports — found during the real lab recon).
+   Regression tests for both.
+
+3. **Few-shot negative examples** (reasoning.py SYSTEM_PROMPT): five rejected
+   commands with the exact supervisor reason (brute-force, rate caps, --dump
+   PII, hallucinated nuclei tag, out-of-scope) — grounds the model at temp
+   0.0, fewer wasted reasoning cycles.
+
+4. **WAF-aware scoring** (evidence.py): score_finding(..., waf=True) reduces
+   exposure automatically (x0.6 mitigation discount, waf_discounted flag) —
+   an internet-reachable port behind a WAF is not scored as fully exposed.
+
+Real lab recon (mission 8 LAB-REALTEST, 127.0.0.1): nmap top-1000 found
+3000/8001/8080/9090 (real facts, sha256 evidence); services stage identified
+Apache Tomcat on 8080. Verified kali tools in real tests: nmap, nikto,
+whatweb, wafw00f, gobuster, nuclei 3.8, ffuf, dig. ffuf against DVWA is
+pathologically slow (per-request PHP sessions) — documented, not a tool bug.

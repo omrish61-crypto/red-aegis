@@ -189,9 +189,16 @@ SEVERITY_PRIORITY = {"critical": "P0", "high": "P1", "medium": "P2",
 
 
 def score_finding(confidence: float, severity: str,
-                  exploitability: float = 0.5, exposure: float = 0.5) -> dict:
-    """Methodology 13 scoring: confidence x impact x exploitability x exposure."""
+                  exploitability: float = 0.5, exposure: float = 0.5,
+                  waf: bool = False) -> dict:
+    """Methodology 13 scoring: confidence x impact x exploitability x exposure.
+
+    WAF-aware: when a WAF fronts the target, exposure is REDUCED
+    automatically (the WAF is a mitigation layer) — a port being reachable
+    is not the same as being exposed."""
     impact = SEVERITY_IMPACT.get((severity or "info").lower(), 0.1)
+    if waf:
+        exposure = exposure * 0.6  # mitigation layer discount
     overall = round(confidence * impact * exploitability * exposure, 3)
     return {
         "confidence": round(confidence, 2),
@@ -201,6 +208,7 @@ def score_finding(confidence: float, severity: str,
         "severity": (severity or "info").lower(),
         "priority": SEVERITY_PRIORITY.get((severity or "info").lower(), "-"),
         "score": overall,
+        "waf_discounted": bool(waf),
     }
 
 

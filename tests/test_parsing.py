@@ -209,6 +209,49 @@ class NiktoRealFixtureTest(unittest.TestCase):
             self.assertTrue(w.startswith("nikto: ERROR:"), w)
 
 
+class NmapScriptOutputTest(unittest.TestCase):
+    """Nmap text-mode NSE script blocks (vulners etc.) -> notes with flag."""
+
+    def test_vulners_block_parsed_with_vuln_flag(self):
+        from intected.parsing.extractors.nmap import extract
+        sample = (
+            "PORT     STATE SERVICE\n"
+            "443/tcp  open  https\n"
+            "| vulners:\n"
+            "|   cpe:/a:apache:http_server:2.4.7:\n"
+            "|       CVE-2017-7679  7.5  https://nvd.nist.gov/vuln/detail/CVE-2017-7679\n"
+            "|_http-title: Site\n"
+        )
+        facts, _ = extract(sample)
+        vulners = [f for f in facts
+                   if isinstance(f.get("value"), dict)
+                   and f["value"].get("script") == "vulners"]
+        self.assertEqual(len(vulners), 1)
+        self.assertTrue(vulners[0]["value"]["vulnerable"])
+        self.assertIn("CVE-2017-7679", vulners[0]["value"]["output"])
+        # fingerprint-strings and http-title are not double-captured
+        names = [f["value"].get("script") for f in facts
+                 if isinstance(f.get("value"), dict)]
+        self.assertNotIn("fingerprint-strings", names)
+        self.assertEqual(names.count("http-title"), 1)
+
+    def test_crlf_ports_do_not_cross_lines(self):
+        """Regression: CRLF output must not make banners bleed across lines."""
+        from intected.parsing.extractors.nmap import extract
+        sample = (
+            "3000/tcp open  ppp\r\n"
+            "8001/tcp open  vcom-tunnel\r\n"
+            "8080/tcp open  http-proxy\r\n"
+        )
+        facts, _ = extract(sample)
+        ports = sorted(f["value"]["port"] for f in facts
+                       if f["fact_type"] == "port")
+        self.assertEqual(ports, [3000, 8001, 8080])
+        for f in facts:
+            if f["fact_type"] == "version":
+                self.assertNotIn("8001/tcp", f["value"].get("banner", ""))
+
+
 class FormatSampleTest(unittest.TestCase):
     """Documented-format conformance.
 

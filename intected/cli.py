@@ -364,7 +364,8 @@ def cmd_matrix(args) -> int:
         graph = build_evidence_graph(conn, args.mission, target)
         profile = stack_profile(graph)
         profile["waf_detected"] = graph.waf["detected"]
-        call = next_tool_call(profile, graph.attack_surface, target)
+        call = next_tool_call(profile, graph.attack_surface, target,
+                              services=graph.services)
         print(f"TARGET : {target}")
         print(f"STACK  : {_json.dumps({k: v for k, v in profile.items() if isinstance(v, bool)})}")
         print(f"WAF    : {graph.waf['detected']} (conf {graph.waf['confidence']})")
@@ -399,6 +400,32 @@ def cmd_wafkb(args) -> int:
         return EXIT_OK
     print(waf_kb.summary())
     return EXIT_OK
+
+
+def cmd_recon(args) -> int:
+    """Phase 1 — gradual supervised recon (Agent 2): staged, gated, stealth."""
+    import json as _json
+    from .recon import run_recon
+    conn = _open_db()
+    try:
+        data = run_recon(conn, args.mission, args.target,
+                         stage=args.stage, force=args.force,
+                         operator_approved=args.operator_approved)
+        print(f"RECON target={data['target']}")
+        for st in data["stages"]:
+            if st.get("gate") == "BLOCKED":
+                print(f"  ✗ {st['name']:<10} BLOCKED: {st.get('reason')}")
+            elif st.get("gate") == "skipped":
+                print(f"  – {st['name']:<10} skipped ({st.get('reason')})")
+            else:
+                print(f"  ✓ {st['name']:<10} approved · {st.get('facts', 0)} "
+                      f"facts · exit {st.get('exit')}")
+        return EXIT_OK
+    except Exception as exc:
+        print(f"recon blocked: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    finally:
+        conn.close()
 
 
 def cmd_keys(args) -> int:
@@ -694,6 +721,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--query", help="question (query action)")
     p.add_argument("--top", type=int, help="top_k passages (default 3)")
     p.set_defaults(fn=cmd_wafkb)
+
+    p = sub.add_parser("recon", help="Phase 1: gradual supervised recon (staged, gated)")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", required=True)
+    p.add_argument("--stage", choices=["ports", "services", "headers", "content"],
+                   help="run a single stage only")
+    p.add_argument("--force", action="store_true", help="re-run stages even with evidence")
+    p.add_argument("--operator-approved", action="store_true")
+    p.set_defaults(fn=cmd_recon)
 
     p = sub.add_parser("keys", help="secure key store (DPAPI vault): set/get/list/rm/import")
     p.add_argument("action", choices=["set", "get", "list", "rm", "import"],

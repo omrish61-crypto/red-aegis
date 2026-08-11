@@ -46,7 +46,7 @@ _TOOLS: dict[str, dict] = {
     "ffuf_content": {
         "summary": "content discovery (rate-limited)",
         "params": {"target": str, "wordlist": str, "rate": int},
-        "defaults": {"wordlist": "/usr/share/wordlists/dirb/common.txt",
+        "defaults": {"wordlist": "/usr/share/dirb/wordlists/common.txt",
                      "rate": 50},
     },
     "nuclei": {
@@ -180,7 +180,7 @@ SAFE_DEFAULTS: dict[str, dict] = {
     "http_headers": {"port": 80},
     "nikto": {"maxtime": 90},
     "ffuf_content": {"rate": 50, "threads": 5, "delay": 1,
-                     "wordlist": "/usr/share/wordlists/dirb/common.txt"},
+                     "wordlist": "/usr/share/dirb/wordlists/common.txt"},
     "nuclei": {"rate_limit": 10, "concurrency": 5,  # -rl 10 -c 5
                "severity": "low,medium,high,critical"},
 }
@@ -200,7 +200,7 @@ def probe_tool(tool: str, force: bool = False) -> str:
     if tool in _help_cache and not force:
         return _help_cache[tool]
     version = ""
-    for flag in ("--version", "-V"):
+    for flag in ("--version", "-V", "-Version", "-v"):
         try:
             out, _ = _run([tool, flag], _HELP_TIMEOUT)
             if out.strip():
@@ -276,8 +276,8 @@ def _build_command(tool: str, merged: dict) -> list[str]:
     if tool == "ffuf_content":
         return ["ffuf", "-u", f"http://{merged['target']}/FUZZ",
                 "-w", merged["wordlist"], "-rate", str(merged["rate"]),
-                "-t", "5", "-p", "1", "-ac", "-mc",
-                "200,204,301,302,307,401,403"]
+                "-t", "5", "-ac", "-mc",
+                "200,204,301,302,307,401,403", "-json"]
     if tool == "nuclei":
         return ["nuclei", "-u", f"http://{merged['target']}",
                 "-severity", merged["severity"], "-rl", "10", "-c", "5"]
