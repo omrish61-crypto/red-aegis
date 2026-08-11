@@ -117,7 +117,7 @@ _VERSION_PATTERNS: list[tuple[str, str, str]] = [
     # Exchange
     (r"(?i)exchange\s*(?:server\s*)?201[0-6]", "Exchange 2010-2016",
      "Exchange 2010-2016 is EOL or approaching — upgrade to 2019+"),
-    (r"(?i)owa|outlook\s*web\s*access", "Exchange OWA",
+    (r"(?i)\bowa\b|outlook\s*web\s*access", "Exchange OWA",
      "Exchange OWA exposed — ensure you've patched ProxyLogon/ProxyShell"),
 
     # Synology DSM
@@ -273,7 +273,7 @@ def compute_grade(conn, mission_id: int, target: str | None = None) -> GradeRepo
     cors_found = any(
         "access-control-allow-origin: *" in (f.get("value") or {}).get("header", "").lower()
         or "access-control-allow-origin" in str(f.get("value", {}))
-        for f in facts.get("note", [])
+        for f in facts.get("note", []) + facts.get("path", [])
     )
     if cors_found:
         deductions.append({

@@ -379,8 +379,9 @@ def cmd_run(args) -> int:
         result = execute(args.tool, params)
         # persist raw output as evidence + parse into facts (durable results)
         facts_added, evidence_ref = _persist_run(conn, args.mission,
-                                                 args.tool, args.target,
-                                                 result.get("output", ""))
+                                                 args.tool,
+                                                 result.get("output", ""),
+                                                 target=args.target)
         result["facts_added"] = facts_added
         result["evidence_ref"] = evidence_ref
         if args.raw:

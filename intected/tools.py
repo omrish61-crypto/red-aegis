@@ -127,7 +127,7 @@ def _run_nmap_ports(target: str, ports: str, rate: int) -> dict:
         p = "-p-"  # allowed ONLY via operator-explicit approval (supervisor)
     else:
         p = f"-p {ports}"
-    out, rc = _run(["nmap", "-Pn", p, "--max-rate", str(rate), "--open",
+    out, rc = _run(["nmap", "-Pn", *p.split(), "--max-rate", str(rate), "--open",
                     "-oN", f"/tmp/intected_{target}.nmap", target], 180)
     return {"exit": rc, "output": out}
 
