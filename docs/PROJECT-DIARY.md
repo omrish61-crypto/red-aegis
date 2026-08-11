@@ -764,3 +764,16 @@ Full report: docs/KALI-TOOLS-POC.md.
   templates. Nuclei operational (templates load, scans run end-to-end).
 - Follow-up: all-tags run against the lab Juice Shop (:3000, 300s, rl 10) —
   designed-vulnerable target; result logged when complete.
+
+### Report fixes (05:40, operator request "בדוק ותקן את הדוחות")
+- nmap text extractor: (a) app identification from fingerprint-strings —
+  evidence-based signature match (OWASP Juice Shop, Tomcat, nginx, Apache
+  httpd, IIS) turns nmap's "ppp?" into a real version fact {service, product}
+  with the port from the SF-PortNNNN marker; (b) \xNN escape decoding for
+  http-title/script output (multi-byte UTF-8 aware) — "HTTP Status 404
+  \xE2\x80\x93" now stores the real en dash (U+2013).
+- Regression tests +2 (escaped title, fingerprint identification); CRLF test
+  repaired (patch-tool CRLF mangling fixed via line-surgery).
+- Re-ingested mission-8 real evidence: facts now include version
+  {port:3000, product:"OWASP Juice Shop"} + decoded http-title.
+- Suite 219 passed + 1 skipped.

@@ -17,8 +17,55 @@ _TEXT_TITLE_RE = re.compile(r"\|_?http-title:\s*(.+)$", re.MULTILINE)
 # text-mode NSE script blocks: "|   vulners:" / "|_http-title:" etc.
 _TEXT_SCRIPT_RE = re.compile(
     r"^\|\s*_?([a-z0-9_-]+):\s*(.*)$", re.MULTILINE)
+# fingerprint-strings block: "| fingerprint-strings:" then consecutive
+# "|" lines (probe responses) until the next non-| line.
+_TEXT_FPRINT_RE = re.compile(
+    r"\| fingerprint-strings:[^\n]*\n((?:\|.*(?:\n|$))*)", re.MULTILINE)
+_SF_PORT_RE = re.compile(r"SF-Port(\d+)-TCP")
 
 SCRIPT_VULN_MARKERS = ("VULNERABLE", "CVE-", "Exploit available", "State:")
+
+# Known-application signatures matched against fingerprint-strings output
+# (evidence-based: the RAW output must literally contain the app name).
+_APP_SIGNATURES = (
+    ("OWASP Juice Shop", {"service": "http", "product": "OWASP Juice Shop"}),
+    ("Apache Tomcat", {"service": "http", "product": "Apache Tomcat"}),
+    ("nginx", {"service": "http", "product": "nginx"}),
+    ("Apache httpd", {"service": "http", "product": "Apache httpd"}),
+    ("Microsoft-IIS", {"service": "http", "product": "Microsoft IIS"}),
+)
+
+
+def _decode_escapes(text: str) -> str:
+    """Decode literal backslash-x escapes nmap emits in script output
+    (e.g. http-title 'HTTP Status 404 \\xE2\\x80\\x93 Not Found').
+    Consecutive backslash-x escape pairs are treated as UTF-8 bytes
+    when valid."""
+    if "\\x" not in text:
+        return text
+    parts = re.split(r"(\\x[0-9a-fA-F]{2})", text)
+    out = []
+    pending: list[int] = []
+    for p in parts:
+        m = re.fullmatch(r"\\x([0-9a-fA-F]{2})", p)
+        if m:
+            pending.append(int(m.group(1), 16))
+            continue
+        if p:  # non-empty separator: flush the pending byte run
+            if pending:
+                out.append(_decode_utf8(pending))
+                pending = []
+            out.append(p)
+    if pending:
+        out.append(_decode_utf8(pending))
+    return "".join(out)
+
+
+def _decode_utf8(bytes_vals: list[int]) -> str:
+    try:
+        return bytes(bytes_vals).decode("utf-8")
+    except Exception:
+        return "".join(chr(b) for b in bytes_vals)
 
 
 def extract(text: str):
@@ -110,7 +157,7 @@ def _extract_text(text: str):
     for m in _TEXT_TITLE_RE.finditer(text):
         facts.append({"fact_type": "note",
                       "value": {"tool": "nmap", "script": "http-title",
-                                "title": bounded(m.group(1))}})
+                                "title": bounded(_decode_escapes(m.group(1)))}})
     # generic NSE script blocks (vulners, ssl-cert, ...) -> notes. http-title
     # is handled above; continuation lines (cpe:/...) are skipped.
     seen_scripts: set[str] = set()
@@ -136,8 +183,29 @@ def _extract_text(text: str):
         facts.append({"fact_type": "note",
                       "value": {"tool": "nmap-script", "script": name,
                                 "vulnerable": vulnish,
-                                "output": content}})
+                                "output": _decode_escapes(content)}})
+    # fingerprint-strings: identify the app from the RAW probe responses —
+    # evidence-based (the output literally contains the app name). This is
+    # what turns nmap's "ppp?" into "OWASP Juice Shop" without guessing.
+    for fm in _TEXT_FPRINT_RE.finditer(text):
+        block = fm.group(1)
+        port = _sf_port_for(text, fm.start())
+        if port is None:
+            continue
+        for sig, meta in _APP_SIGNATURES:
+            if sig.lower() in block.lower():
+                facts.append({"fact_type": "version",
+                              "value": {"port": port,
+                                        "service": meta["service"],
+                                        "product": meta["product"]}})
+                break
     return dedupe_facts(facts), warnings
+
+
+def _sf_port_for(text: str, pos: int) -> int | None:
+    """Port from the first 'SF-PortNNNN-TCP' marker after position pos."""
+    m = _SF_PORT_RE.search(text, pos)
+    return int(m.group(1)) if m else None
 
 
 # Public alias: shared with the masscan extractor (masscan -oX emits the nmap

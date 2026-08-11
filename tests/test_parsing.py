@@ -238,11 +238,10 @@ class NmapScriptOutputTest(unittest.TestCase):
     def test_crlf_ports_do_not_cross_lines(self):
         """Regression: CRLF output must not make banners bleed across lines."""
         from intected.parsing.extractors.nmap import extract
-        sample = (
-            "3000/tcp open  ppp\r\n"
-            "8001/tcp open  vcom-tunnel\r\n"
-            "8080/tcp open  http-proxy\r\n"
-        )
+        crlf = chr(13) + chr(10)
+        sample = ("3000/tcp open  ppp" + crlf +
+                  "8001/tcp open  vcom-tunnel" + crlf +
+                  "8080/tcp open  http-proxy" + crlf)
         facts, _ = extract(sample)
         ports = sorted(f["value"]["port"] for f in facts
                        if f["fact_type"] == "port")
@@ -250,6 +249,41 @@ class NmapScriptOutputTest(unittest.TestCase):
         for f in facts:
             if f["fact_type"] == "version":
                 self.assertNotIn("8001/tcp", f["value"].get("banner", ""))
+
+    def test_escaped_unicode_title_decoded(self):
+        """nmap's \\\\xNN escapes in http-title must decode (404 – Not Found)."""
+        from intected.parsing.extractors.nmap import extract
+        sample = (
+            "8080/tcp open  http    Apache Tomcat (language: en)\n"
+            "|_http-title: HTTP Status 404 \\xE2\\x80\\x93 Not Found\n"
+        )
+        facts, _ = extract(sample)
+        titles = [f["value"]["title"] for f in facts
+                  if isinstance(f.get("value"), dict)
+                  and f["value"].get("script") == "http-title"]
+        self.assertEqual(len(titles), 1)
+        self.assertIn("\u2013", titles[0])  # en dash, not \\xE2\\x80\\x93
+        self.assertNotIn("\\x", titles[0])
+
+    def test_fingerprint_app_identification(self):
+        """'ppp?' port with Juice Shop fingerprint -> evidence-based identity."""
+        from intected.parsing.extractors.nmap import extract
+        sample = (
+            "3000/tcp open  ppp?\n"
+            "| fingerprint-strings: \n"
+            "|   GetRequest: \n"
+            "|     HTTP/1.1 200 OK\n"
+            "|     <title>OWASP Juice Shop</title>\n"
+            "|     Copyright (c) Bjoern Kimminich & the OWASP Juice Shop\n"
+            "|_    Connection: close\n"
+            "SF-Port3000-TCP:V=7.99%r(GetRequest,...)\n"
+        )
+        facts, _ = extract(sample)
+        ident = [f["value"] for f in facts
+                 if f["fact_type"] == "version"
+                 and f["value"].get("product") == "OWASP Juice Shop"]
+        self.assertEqual(len(ident), 1)
+        self.assertEqual(ident[0]["port"], 3000)
 
 
 class FormatSampleTest(unittest.TestCase):
