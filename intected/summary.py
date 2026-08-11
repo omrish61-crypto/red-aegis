@@ -150,7 +150,39 @@ def generate_summary(grade: GradeReport, facts: dict[str, list]) -> str:
             )
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
-            return content.strip()
+            content = content.strip()
+            # Hallucination guard: validate LLM output against ground truth
+            if not _validate_summary(content, grade):
+                return _build_fallback_summary(grade, facts)
+            return content
     except Exception:
-        # graceful fallback — the summary engine is never a hard dependency
         return _build_fallback_summary(grade, facts)
+
+
+def _validate_summary(text: str, grade: GradeReport) -> bool:
+    """Reject LLM output that contradicts known facts (hallucination guard).
+
+    Returns False if the summary:
+    - claims 'secure' or 'no issues' when deductions exist
+    - fails to mention the grade letter
+    - is empty or clearly broken
+    """
+    import re
+    if not text or len(text) < 50:
+        return False
+    text_lower = text.lower()
+    # Must mention the grade letter somewhere
+    if grade.letter.lower() not in text_lower:
+        return False
+    # If there are critical/high deductions, must not claim "secure" or "all clear"
+    if grade.deductions:
+        dangerous = ["all clear", "no issues", "completely secure",
+                     "perfectly safe", "nothing to worry about",
+                     "your network is secure", "no vulnerabilities found"]
+        for phrase in dangerous:
+            if phrase in text_lower:
+                return False
+    # Must not contradict the deduction count
+    if grade.deductions and "no security issues" in text_lower:
+        return False
+    return True

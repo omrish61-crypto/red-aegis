@@ -330,5 +330,30 @@ class AutoReconScriptTest(unittest.TestCase):
                       "Script must reference mission 8")
 
 
+    def test_summary_validation_guard(self):
+        """Hallucination guard rejects summaries that contradict known facts."""
+        from intected.summary import _validate_summary
+        from intected.grading import GradeReport
+        # Grade with deductions
+        grade = GradeReport(score=75, letter='C',
+            deductions=[{'reason': 'Port 22 open', 'points': 15, 'detail': 'SSH'}],
+            positives=['No RDP'], fact_count=15)
+        # Valid summary — mentions grade, doesn't claim "secure"
+        self.assertTrue(_validate_summary(
+            "Your security grade is a C. You have an open SSH port that needs attention.", grade))
+        # Hallucination: claims "secure" despite deductions
+        self.assertFalse(_validate_summary(
+            "Your network is secure and has no issues. Grade: C.", grade))
+        # No grade letter mentioned
+        self.assertFalse(_validate_summary(
+            "Everything looks good here. No problems found.", grade))
+        # Too short
+        self.assertFalse(_validate_summary("OK", grade))
+        # Grade A with no deductions — "all clear" is OK then
+        grade_a = GradeReport(score=100, letter='A', deductions=[], positives=[], fact_count=0)
+        self.assertTrue(_validate_summary(
+            "Your security grade is A. All clear — no issues found.", grade_a))
+
+
 if __name__ == "__main__":
     unittest.main()
