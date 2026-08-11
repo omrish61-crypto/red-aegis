@@ -152,13 +152,30 @@ document.addEventListener("DOMContentLoaded", () => {
   if (form) form.addEventListener("submit", addTarget);
   const start = document.getElementById("start-test");
   if (start) start.addEventListener("click", startTest);
-  // delegated click handling: per-command Run + Run all
+  // delegated click handling: per-command Run, per-plan-item Run, Run all
   document.addEventListener("click", (e) => {
     const runBtn = e.target.closest("[data-run-cmd]");
     if (runBtn) { runCommand(Number(runBtn.dataset.runCmd), runBtn); return; }
+    const planBtn = e.target.closest("[data-plan-run]");
+    if (planBtn) { planRun(planBtn.dataset.planRun, planBtn); return; }
     if (e.target.closest("#run-all")) { runAllCommands(); return; }
   });
 });
+
+async function planRun(rank, btn) {
+  const missionId = document.querySelector("#mission-select").value;
+  if (!missionId) { flash("select a mission first", true); return; }
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  btn.disabled = true; btn.textContent = "running…";
+  try {
+    const r = await fetch(`/api/missions/${missionId}/plan/${encodeURIComponent(rank)}/run?token=${encodeURIComponent(token)}`,
+      { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) { flash(`${rank} run failed: ${d.error || r.status}`, true); return; }
+    flash(`${rank} ran — exit ${d.exit_code}, ${d.facts_added} fact(s) added`, false);
+  } catch (err) { flash(`${rank} run error: ${err.message}`, true); }
+  finally { tick(); }
+}
 
 async function runCommand(cmdId, btn) {
   const token = new URLSearchParams(window.location.search).get("token") || "";
@@ -350,6 +367,9 @@ async function loadPlan() {
           <div class="muted">${esc(item.hypothesis)}</div>
           ${item.commands.length ? `<div class="mono small">${esc(item.commands[0])}</div>` : ""}
         </div>
+        ${item.commands.length
+          ? `<button class="btn mini" data-plan-run="P${item.rank}" title="Run '${esc(item.commands[0])}' through the supervisor gate">Run</button>`
+          : ""}
       </div>`).join("") || '<div style="color:var(--muted)">no plan yet — gather evidence first</div>';
   } catch (e) {
     $("plan-graph").textContent = "plan error: " + e.message;

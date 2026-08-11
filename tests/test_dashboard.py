@@ -294,6 +294,58 @@ class ApiTest(unittest.TestCase):
         r = self.client.get(f"/api/missions/{self.mid}/plan")
         self.assertEqual(r.status_code, 401)
 
+    def test_plan_run_endpoints(self):
+        """Plan-run endpoint: auth, unknown rank, happy path (exec mocked)."""
+        from unittest import mock
+        # 401 without token (auth fires before any DB access)
+        r = self.client.post(f"/api/missions/{self.mid}/plan/P5/run")
+        self.assertEqual(r.status_code, 401)
+        # 404 for an unknown rank
+        r = self.client.post(
+            f"/api/missions/{self.mid}/plan/P99/run?token={self.token}")
+        self.assertEqual(r.status_code, 404)
+        self.assertIn("no plan item", r.json()["error"])
+        # happy path — execute_raw and _persist_run are mocked so no real
+        # command runs and no evidence file is written
+        fake = {"exit": 0, "log": "test output\nline2",
+                "log_lines": ["test output", "line2"], "elapsed_s": 0.1}
+        with mock.patch("intected.tools.execute_raw", return_value=fake), \
+             mock.patch("intected.cli._persist_run",
+                        return_value=(2, "plan_ev.raw")):
+            r = self.client.post(
+                f"/api/missions/{self.mid}/plan/P5/run?token={self.token}")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["rank"], "P5")
+        self.assertIn("area", data)
+        self.assertIn("command", data)
+        self.assertEqual(data["exit_code"], 0)
+        self.assertEqual(data["elapsed_s"], 0.1)
+        self.assertEqual(data["facts_added"], 2)
+        self.assertEqual(data["evidence_ref"], "plan_ev.raw")
+        self.assertIn("test output", data["output_head"])
+        self.assertLessEqual(len(data["output_head"]), 800)
+        # audit row persisted
+        conn = db.connect(self._tmp.name)
+        db.init_db(conn)
+        row = conn.execute(
+            "SELECT action FROM audit WHERE action='plan.run' "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+
+    def test_plan_run_supervisor_reject(self):
+        """Supervisor gate failure on a plan command surfaces as 422."""
+        from unittest import mock
+        from intected.scope import ScopeViolation
+        with mock.patch("intected.scope.check_command",
+                        side_effect=ScopeViolation(
+                            "host 10.9.9.9 is outside allowed scope")):
+            r = self.client.post(
+                f"/api/missions/{self.mid}/plan/P5/run?token={self.token}")
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("supervisor rejected", r.json()["error"])
+
     def test_evidence_endpoint(self):
         r = self.client.get(f"/api/missions/{self.mid}/evidence/1",
                             params={"token": self.token})

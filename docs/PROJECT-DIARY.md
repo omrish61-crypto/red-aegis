@@ -877,3 +877,19 @@ blocked) — restart with the fix resolved it.
 
 Docs: docs/TOOL-VERIFICATION-20260811.md (full matrix + environment fixes +
 honest notes).
+
+### Plan-tab Run buttons (08:00, delegated to subagent + control-verified)
+User request: buttons on the Plan stage so the user can continue from there.
+Subagent (deleg_4acb6600) implemented + I verified against ground truth:
+- POST /api/missions/{mission_id}/plan/{rank}/run — auth → rebuild plan →
+  match item by rank ("P5" or "5"; plan ranks are ints with a commands LIST,
+  the agent adapted correctly — my brief's shape was wrong) → supervisor gate
+  (check_command, 422 on reject) → execute_raw(600s) → _persist_run →
+  audit plan.run → {rank, area, command, exit_code, elapsed_s, facts_added,
+  evidence_ref, output_head}. conn closed in finally on every path.
+- app.js: Run button per plan item (data-plan-run), delegated click,
+  planRun() with running… state + flash toast + tick().
+- Tests +2 (401/404 + mocked happy path; 422 supervisor reject).
+CONTROL VERIFICATION: suite 223 passed + 1 skipped (fresh); node --check OK;
+live: POST /plan/7/run -> exit 0 (nmap 443, evidence persisted); browser
+click on P6 -> curl exit 7 (connection refused — honest), audit logged.

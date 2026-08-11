@@ -309,6 +309,75 @@ def create_app(token: str | None = None,
         finally:
             conn.close()
 
+    @app.post("/api/missions/{mission_id}/plan/{rank}/run")
+    def api_plan_run(mission_id: int, rank: str,
+                     token: str | None = Query(None),
+                     x_intected_token: str | None = Header(None),
+                     authorization: str | None = Header(None),
+                     origin: str | None = Header(None)):
+        """Run ONE plan item's first command through the Supervisor gate.
+        Evidence (raw output) + parsed facts are persisted, audit logged.
+        `rank` matches the plan item either as "P5" or "5"."""
+        if not _authorized(x_intected_token or token, origin or authorization):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .evidence import _default_target
+        from .planner import plan_for_mission
+        conn = _open()
+        try:
+            target = _default_target(conn, mission_id)
+            if target is None:
+                return JSONResponse({"error": "mission not found"},
+                                    status_code=404)
+            plan = plan_for_mission(conn, mission_id, target)
+            item = next(
+                (it for it in plan["plan"]["plan"]
+                 if str(it["rank"]) == rank
+                 or f"P{it['rank']}" == rank.upper()),
+                None)
+            if item is None:
+                return JSONResponse(
+                    {"error": f"no plan item with rank {rank}"},
+                    status_code=404)
+            cmds = item.get("commands") or []
+            if not cmds:
+                return JSONResponse(
+                    {"error": f"plan item {rank} has no command to run"},
+                    status_code=422)
+            cmd, area = cmds[0], item["area"]
+            # supervisor gate (Agent 1): scope + aggression
+            mission = db.get_mission(conn, mission_id)
+            hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+            try:
+                from .scope import check_command
+                check_command(cmd, hosts)
+            except Exception as exc:
+                return JSONResponse(
+                    {"error": f"supervisor rejected: {exc}"},
+                    status_code=422)
+            # execute (operator-gated, bounded, real-time capture)
+            from .tools import execute_raw
+            result = execute_raw(cmd, timeout=600)
+            output = result.get("log", "")
+            # persist evidence + facts
+            from .cli import _persist_run
+            facts_added, evidence_ref = _persist_run(
+                conn, mission_id, "plan", "raw", output)
+            db.log_audit(conn, "dashboard", "plan.run",
+                         f"rank={rank} cmd={cmd!r} exit={result.get('exit')} "
+                         f"facts={facts_added} ref={evidence_ref}")
+        finally:
+            conn.close()
+        return {
+            "rank": rank,
+            "area": area,
+            "command": cmd,
+            "exit_code": result.get("exit"),
+            "elapsed_s": result.get("elapsed_s"),
+            "facts_added": facts_added,
+            "evidence_ref": evidence_ref,
+            "output_head": output[:800],
+        }
+
     @app.get("/api/missions/{mission_id}/evidence/{fact_id}")
     def api_evidence(mission_id: int, fact_id: int,
                      token: str | None = Query(None),
