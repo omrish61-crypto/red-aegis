@@ -144,6 +144,7 @@ document.querySelectorAll(".tab").forEach((t) => {
     t.classList.add("active");
     $("view-" + t.dataset.tab).classList.add("active");
     if (t.dataset.tab === "plan") loadPlan();
+    if (t.dataset.tab === "report") loadGrade();
   };
 });
 
@@ -384,10 +385,7 @@ async function tick() {
     $("conn").textContent = "error: " + e.message;
     $("conn").className = "pill err";
     if (/unauthorized/i.test(e.message || "")) showAuthError();
-  }
-}
-
-(async function init() {
+  }\n}\n\n// ── Report tab: letter grade preview + Generate button ────────────────────\n\nasync function loadGrade() {\n  const mid = $(\"mission-select\").value;\n  if (!mid) return;\n  try {\n    const r = await fetch(`/api/missions/${mid}/plan?token=${encodeURIComponent(authToken)}`);\n    const d = await r.json();\n    const grade = computeLetterGrade(d.graph);\n    $(\"report-grade\").textContent = grade.letter;\n    $(\"report-grade\").className = \"grade-letter inline grade-\" + grade.letter;\n    $(\"report-score\").textContent = \"Security Score: \" + grade.score + \" / 100\";\n  } catch(e) {\n    $(\"report-grade\").textContent = \"?\";\n    $(\"report-score\").textContent = \"Could not load grade\";\n  }\n}\n\nfunction computeLetterGrade(graph) {\n  let score = 100;\n  const highRisk = [3389, 445, 23, 21, 22, 3306, 5432, 6379, 27017];\n  for (const svc of (graph.services || [])) {\n    if (highRisk.includes(svc.port)) score -= 15;\n  }\n  if ((graph.attack_surface || []).some(p => [\"/admin\",\"/wp-admin\",\"/.env\",\"/.git\"].includes(p.rstrip(\"/\")||p)))\n    score -= 10;\n  for (const tech of (graph.technologies || [])) {\n    if (/2\\.4\\.7|2\\.4\\.25|9\\.0\\.0-M1/.test(tech)) score -= 10;\n  }\n  score = Math.max(0, Math.min(100, score));\n  let letter = score >= 90 ? \"A\" : score >= 80 ? \"B\" : score >= 70 ? \"C\"\n             : score >= 60 ? \"D\" : \"F\";\n  return {letter, score};\n}\n\n$(\"gen-report\").onclick = async () => {\n  const mid = $(\"mission-select\").value;\n  if (!mid) return;\n  window.open(`/api/missions/${mid}/report?token=${encodeURIComponent(authToken)}`, \"_blank\");\n};\n\n(async function init() {
   try {
     await loadMissions();
   } catch (e) {

@@ -15,7 +15,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 
 from . import config, db
 from .parsing import verify_evidence
@@ -411,6 +411,31 @@ def create_app(token: str | None = None,
         finally:
             conn.close()
 
+    @app.get("/api/missions/{mission_id}/report")
+    def api_report(mission_id: int,
+                   token: str | None = Query(None),
+                   x_intected_token: str | None = Header(None),
+                   origin: str | None = Header(None)):
+        """SMB report: letter grade, plain-English summary, fix-it checklist."""
+        if not _authorized(x_intected_token or token, origin):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        conn = _open()
+        try:
+            from .evidence import _default_target
+            from .grading import compute_grade, _load_facts
+            from .summary import generate_summary
+            from .checklist import generate_checklist
+            import json as _json
+            target = _default_target(conn, mission_id) or f"mission-{mission_id}"
+            grade = compute_grade(conn, mission_id, target)
+            facts = _load_facts(conn, mission_id, target)
+            summary = generate_summary(grade, facts)
+            checklist = generate_checklist(grade, facts)
+            html = _render_report_html(target, grade, summary, checklist, facts)
+            return HTMLResponse(html)
+        finally:
+            conn.close()
+
     @app.get("/")
     def spa():
         return FileResponse(STATIC_DIR / "index.html")
@@ -424,3 +449,86 @@ def create_app(token: str | None = None,
         return FileResponse(STATIC_DIR / "styles.css", media_type="text/css")
 
     return app
+
+
+# ── report HTML renderer (inside create_app so it's importable here) ──────────
+
+def _render_report_html(target: str, grade, summary: str, checklist: list,
+                         facts: dict[str, list]) -> str:
+    """Return a self-contained HTML page for the SMB security report."""
+    gra = grade
+    dl_rows = "\n".join(
+        f'<tr><td class="dd">{d["points"]} pts</td><td>{d["reason"]}</td></tr>'
+        for d in gra.deductions
+    ) or '<tr><td colspan="2">No risk deductions — clean scan</td></tr>'
+
+    ch_rows = "\n".join(
+        f'<div class="ch-item">'
+        f'<strong>{c["priority"].upper()}</strong> — {c["title"]}<br>'
+        f'<pre>{c["steps"]}</pre></div>'
+        for c in checklist
+    ) or '<p>No remediation steps needed.</p>'
+
+    summary_paras = "\n".join(
+        f"<p>{p}</p>" for p in summary.split("\n\n") if p.strip()
+    )
+
+    grade_color = {"A": "#2d6", "B": "#8c3", "C": "#db0",
+                   "D": "#e80", "F": "#d22"}.get(gra.letter, "#888")
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RedAegis Security Report — {target}</title>
+<style>
+  body {{ font-family: -apple-system, system-ui, sans-serif; max-width: 720px;
+         margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.6; }}
+  h1 {{ font-size: 24px; margin: 0; }}
+  .meta {{ color: #666; font-size: 13px; margin-bottom: 24px; }}
+  .grade-card {{ text-align: center; margin: 30px 0; }}
+  .grade-letter {{ font-size: 96px; font-weight: 800; color: {grade_color};
+                   line-height: 1; }}
+  .grade-score {{ font-size: 18px; color: #888; }}
+  section {{ margin: 28px 0; }}
+  section h2 {{ font-size: 16px; text-transform: uppercase; letter-spacing: 1px;
+                color: #555; border-bottom: 1px solid #ddd; padding-bottom: 4px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 14px; }}
+  td {{ padding: 6px 8px; border-bottom: 1px solid #eee; }}
+  .dd {{ text-align: right; font-weight: 600; color: #d22; width: 60px; }}
+  .ch-item {{ margin: 12px 0; padding: 10px; background: #f7f7f7;
+              border-left: 3px solid {grade_color}; font-size: 14px; }}
+  .ch-item pre {{ margin: 6px 0 0; white-space: pre-wrap; font-size: 13px;
+                  background: #fff; padding: 6px 8px; border-radius: 4px; }}
+  footer {{ margin-top: 40px; font-size: 12px; color: #aaa; text-align: center; }}
+  @media print {{ body {{ margin: 0; padding: 0; }} }}
+</style>
+</head>
+<body>
+  <h1>&#x25C8; RedAegis Security Report</h1>
+  <p class="meta">Target: {target} &middot; {gra.fact_count} evidence facts &middot;
+     Generated @timestamp@</p>
+  <div class="grade-card">
+    <div class="grade-letter">{gra.letter}</div>
+    <div class="grade-score">Security Score: {gra.score} / 100</div>
+  </div>
+  <section>
+    <h2>Executive Summary</h2>
+    {summary_paras}
+  </section>
+  <section>
+    <h2>Risk Breakdown</h2>
+    <table><tr><th>Deduction</th><th>Finding</th></tr>
+    {dl_rows}</table>
+  </section>
+  <section>
+    <h2>Checklist for Your IT Team</h2>
+    {ch_rows}
+  </section>
+  <footer>
+    RedAegis &mdash; AI Security Co-Pilot &middot; redaegis.io<br>
+    This report is generated from automated scanning. For a full security
+    assessment, consult a qualified security professional.
+  </footer>
+</body>
+</html>"""

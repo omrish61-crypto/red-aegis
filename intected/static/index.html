@@ -24,6 +24,7 @@
     <button class="tab" data-tab="results">Results</button>
     <button class="tab" data-tab="mission">Mission</button>
     <button class="tab" data-tab="plan">Plan</button>
+    <button class="tab" data-tab="report">Report</button>
   </nav>
 
   <main>
@@ -110,6 +111,16 @@
         </div>
       </div>
     </section>
+
+    <section id="view-report" class="view">
+      <div class="grade-card">
+        <div class="grade-letter" id="report-grade">—</div>
+        <div class="grade-score" id="report-score"></div>
+      </div>
+      <button id="gen-report" class="btn primary">Generate Full Report</button>
+      <p class="hint" style="margin-top:8px">Opens a print-friendly report in a new tab — use Ctrl+P to save as PDF.</p>
+    </section>
+
   </main>
 
   <div id="modal" class="modal hidden">
