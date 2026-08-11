@@ -481,26 +481,36 @@ def create_app(token: str | None = None,
         from .recon import run_recon
         conn = _open()
         try:
-            # 1. validate + normalize the domain
-            domain = domain.strip().lower()
-            if not re.match(r'^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$', domain):
+            # 1. validate + normalize the target (domain, IP, or CIDR range)
+            target_input = domain.strip().lower()
+            # accept: domain, IPv4, IPv4 CIDR, IPv6
+            is_domain = bool(re.match(
+                r'^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$',
+                target_input))
+            is_ip = bool(re.match(
+                r'^(\d{1,3}\.){3}\d{1,3}$', target_input))
+            is_cidr = bool(re.match(
+                r'^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$', target_input))
+            if not (is_domain or is_ip or is_cidr):
                 return JSONResponse(
-                    {"error": f"invalid domain: {domain} — enter a domain like 'example.com'"},
+                    {"error": f"invalid target: {target_input} — "
+                     "enter a domain (example.com), IP (192.168.1.1), "
+                     "or CIDR range (10.0.0.0/24)"},
                     status_code=422)
-            # 2. create a mission with this domain as the single scope target
-            name = f"SCAN-{domain}-{_time.strftime('%Y%m%d-%H%M%S')}"
-            mid = db.create_mission(conn, name, [domain],
+            # 2. create a mission with this target as the single scope entry
+            name = f"SCAN-{target_input}-{_time.strftime('%Y%m%d-%H%M%S')}"
+            mid = db.create_mission(conn, name, [target_input],
                                     scope={"auto_scanned": True, "email": email or ""})
             db.log_audit(conn, "dashboard", "scan.create",
-                         f"domain={domain} mission={mid} auto-scanned")
-            # 3. run SAFE recon against the domain
+                         f"target={target_input} mission={mid} auto-scanned")
+            # 3. run SAFE recon
             stages = []
             try:
-                data = run_recon(conn, mid, domain, operator_approved=True)
+                data = run_recon(conn, mid, target_input, operator_approved=True)
                 stages = data.get("stages", [])
             except Exception as exc:
                 db.log_audit(conn, "dashboard", "scan.error",
-                             f"domain={domain} mission={mid} error={exc}")
+                             f"target={target_input} mission={mid} error={exc}")
             # 4. return the mission handle + report URL
             facts_count = conn.execute(
                 "SELECT COUNT(*) FROM facts WHERE mission_id=?", (mid,)).fetchone()[0]
@@ -508,11 +518,12 @@ def create_app(token: str | None = None,
             return {
                 "mission_id": mid,
                 "mission_name": name,
-                "domain": domain,
+                "target": target_input,
                 "facts_found": facts_count,
                 "stages_completed": len([s for s in stages if s.get("gate") == "approved"]),
                 "report_url": report_url,
-                "message": f"Scan of {domain} complete. {facts_count} facts found. View your report at {report_url}",
+                "message": f"Scan of {target_input} complete. {facts_count} facts found. "
+                           f"View your report at {report_url}",
             }
         finally:
             conn.close()
