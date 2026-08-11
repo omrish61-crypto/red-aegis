@@ -722,3 +722,18 @@ Real lab recon (mission 8 LAB-REALTEST, 127.0.0.1): nmap top-1000 found
 Apache Tomcat on 8080. Verified kali tools in real tests: nmap, nikto,
 whatweb, wafw00f, gobuster, nuclei 3.8, ffuf, dig. ffuf against DVWA is
 pathologically slow (per-request PHP sessions) — documented, not a tool bug.
+
+---
+
+## 2026-08-11 05:00-05:10 — Kali tools full check + POC (operator request)
+
+Checked the operator's 14-category Kali list in kali-linux WSL: 26 installed,
+38 not (minimal install — no GUI/wireless stack). Real bounded POCs against
+authorized targets only: nmap/masscan found real ports, nikto produced 13+
+DVWA findings, sqlmap ran live injection tests on Juice REST, gobuster/dirb
+correctly detected the SPA wildcard, john ran a crack session, tcpdump
+captured clean. Policy mapping documented: brute-force (hydra/medusa) and
+exploitation (msf) exist but stay OUT of the execution registry
+(operator-gated, legal scope only). Honest gaps: nuclei templates missing
+(needs `nuclei -ut` + internet), impacket absent, amass libpostal degraded.
+Full report: docs/KALI-TOOLS-POC.md.
