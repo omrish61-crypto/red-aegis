@@ -816,3 +816,35 @@ evidence.
   (2)"; clicked Run on cmd 2 -> ran through gate -> curl DNS fail (exit 6,
   honest) -> exit pill shown, Run all -> "Run all (1)", evidence file saved.
 - Suite 221 passed + 1 skipped.
+
+---
+
+## 2026-08-11 06:40-07:00 — PROJECT COMPLETION (operator asleep, autonomous)
+
+**End-to-end lab engagement (mission 8 LAB-REALTEST, authorized 127.0.0.1):**
+recon (ports 3000/8001/8080/9090, real) → evidence graph (Juice Shop
+identified from SF: fingerprints, Tomcat 8080) → plan (P5 injection first —
+input-bearing endpoints evidence-backed) → executed P1: nikto (22 real
+findings: CORS access-control-allow-origin:*, /robots.txt entry, /public/,
+/.htpasswd probes) + nuclei (prometheus-metrics medium at :3000/metrics,
+verified HTTP 200/26KB) → 15 nikto facts + surface grew to 7 paths (12 path
+facts) → plan re-ranked on the new evidence. THE LOOP WORKS.
+
+**Final verification pass:**
+- sha256 integrity: 64/64 facts match disk evidence — 0 mismatches, 0 missing
+- Dashboard endpoints: /api/missions, /api/missions/8, /plan — all 200
+- pentest-core prod DB intact (36 runs / 413 findings)
+- Suite: 221 passed + 1 skipped, EXIT=0
+
+**Final docs:** README status → COMPLETE; ACCEPTANCE-SCORECARD bottom line +
+final-state evidence; ARCHITECTURE.md + EXECUTION-WORKFLOW.md + REVIEW +
+KALI-TOOLS-POC all current.
+
+**Known honest limitations (documented, not hidden):**
+1. Facts have no per-target column — a mission spanning multiple targets
+   mixes evidence in the graph (mitigation: recon stages per mission).
+2. burp extractor lacks a real capture (no burp CLI on host).
+3. nuclei full-severity runs at rl 30 exceed bounded windows for complete
+   coverage — targeted tag runs produce findings (proven).
+4. dvwa.local (mission 1) doesn't resolve — its commands honestly fail at
+   DNS (exit 6), visible in the queue.

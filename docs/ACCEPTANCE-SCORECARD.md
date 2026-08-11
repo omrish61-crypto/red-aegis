@@ -45,7 +45,24 @@ automated lab engagement, real browser DOM checks, real pentest-core artifacts)
 
 ## Bottom line
 
-Core plan goals: **92.9% weighted compliance** (was 86.6% — G1/G2/G4 raised by
-the overnight stress engagement + real captures + extractor fix). All plan
-phases P0–P4 delivered and verified; write-back proven against the live
-production DB under operator authorization.
+Core plan goals: **92.5% weighted compliance** (final, 2026-08-11; was 92.9%
+after the overnight engagement — re-weighted after the multi-agent spec
+review; see docs/ARCHITECTURE-REVIEW.md). All plan phases P0–P4 delivered and
+verified; write-back proven against the live production DB under operator
+authorization.
+
+### Final-state evidence (2026-08-11, all verified live)
+- Suite: 221 passed + 1 skipped, EXIT=0 (fresh run)
+- Evidence integrity: 64/64 facts' sha256 verified against disk files — 0
+  mismatches, 0 missing
+- Real findings in the lab mission: nmap ports (3000/8001/8080/9090), Tomcat
+  on 8080, Juice Shop identified from fingerprint evidence, nikto 22 findings
+  (CORS wildcard, robots.txt, /public/), nuclei prometheus-metrics [medium]
+  at :3000/metrics (HTTP 200, 26KB, verified)
+- Kali toolchain: 26 tools verified with real POCs; nuclei FIXED end-to-end
+  (v3.11.1 + stdin fix + WSL NAT fast-fail) — real template load + findings
+- Multi-agent spec implemented: Supervisor gate, tool registry
+  (function-calling, no raw bash), decision matrix (honeypot-aware), live NVD
+  client, PII guard, WAF-aware scoring, few-shot negative prompting, gradual
+  supervised recon, dashboard Run/Run-all buttons
+- pentest-core prod DB intact: 36 runs / 413 findings

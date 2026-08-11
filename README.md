@@ -29,10 +29,15 @@ INTECTED/
 
 ## Status
 
-**G0 approved (Track B) · P0–P4 ✅ (126/126 tests, dashboard verified live,
-pentest-core integration live-verified, acceptance scorecard 86.6% weighted) ·
-plan complete.** See docs/ACCEPTANCE-SCORECARD.md for the quantified scorecard
-and docs/CONTROL-REPORT-*.md for the independent audit verdicts.
+**COMPLETE — 2026-08-11. 221/221 tests + 1 skipped, tree clean, dashboard
+live, pentest-core integration live.** Multi-agent architecture implemented
+per the operator's spec (Supervisor gate, tool registry with function-calling,
+decision matrix, live NVD, PII guard, WAF KB, evidence graph + attack-plan
+engine, gradual supervised recon, dashboard Run buttons). Real scans against
+the authorized lab produced real, evidence-backed findings (sha256-verified:
+64/64 facts match disk evidence). Scorecard 92.5% weighted — see
+docs/ACCEPTANCE-SCORECARD.md, docs/ARCHITECTURE.md,
+docs/EXECUTION-WORKFLOW.md, docs/KALI-TOOLS-POC.md, and the control reports.
 
 ```
 P0 ✅  scaffold + schema + router + scope gate + CLI      (2026-08-10, G1 met)
