@@ -737,3 +737,23 @@ exploitation (msf) exist but stay OUT of the execution registry
 (operator-gated, legal scope only). Honest gaps: nuclei templates missing
 (needs `nuclei -ut` + internet), impacket absent, amass libpostal degraded.
 Full report: docs/KALI-TOOLS-POC.md.
+
+---
+
+## 2026-08-11 05:20 — Open-items cleanup (operator request)
+
+1. **Command queue (26)**: all stale commands (targets removed from scope)
+   rejected with audit entries — 23 rejected (m3's 127.0.0.1/localhost/
+   host.docker.internal-era commands); 3 kept proposed because their targets
+   ARE in their missions' current scopes (m1 dvwa.local ×2, m2 lab trio ×1).
+   Command states: 23 rejected / 3 proposed.
+2. **Blocked tasks**: re-scoped against the CURRENT mission-3 scope
+   (scanme.nmap.org, 45.33.32.156): tasks 19-22 (127.0.0.1, localhost,
+   host.docker.internal, 10.10.10.0/24) → BLOCKED (consistent with the
+   engine's scope enforcement); task 24 (scanme.nmap.org) → UNBLOCKED to
+   pending (target is back in scope); task 25 (45.33.32.156) stays pending.
+   Task 23 (172.16.5.0/24) stays blocked — never authorized.
+3. **10.10.10.0/24**: task 22 blocked; plan verified re-ranked to scanme
+   (P1 Auth/AuthZ first, Apache+Tomcat, 6 surface paths).
+4. **nuclei**: focused -tags cve run against scanme (outdated Apache 2.4.7),
+   bounded 240s at rl 10 — result logged when complete.
