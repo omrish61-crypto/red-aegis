@@ -893,3 +893,18 @@ Subagent (deleg_4acb6600) implemented + I verified against ground truth:
 CONTROL VERIFICATION: suite 223 passed + 1 skipped (fresh); node --check OK;
 live: POST /plan/7/run -> exit 0 (nmap 443, evidence persisted); browser
 click on P6 -> curl exit 7 (connection refused — honest), audit logged.
+
+### Evidence integrity audit — all facts + files (09:00, user request)
+Audited EVERY fact and evidence file for errors:
+1. Facts table: 100/100 sha256 chains verified vs disk, 0 empty refs, all
+   values valid JSON with type-correct shapes — CLEAN (no errors found).
+2. REAL BUG FOUND + FIXED: the run-all endpoint never passed output_ref to
+   update_command_state — evidence files created but not linked to commands
+   (only the single-run endpoint did). Fixed + backfilled 9 command output_refs.
+3. recon._ingest now audits every evidence file (evidence.raw with ref),
+   even when 0 facts parsed — previously untraceable recon raws.
+4. Retro-audit: 19 historical untraceable evidence files (stray scanme/lab
+   raws, failed ffuf/gobuster runs with the old wordlist bug) linked via
+   cleanup audit entries with honest descriptions.
+RESULT: every evidence file in the system is traceable (facts, commands, or
+audit). Suite 223 passed + 1 skipped.

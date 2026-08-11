@@ -275,7 +275,8 @@ def create_app(token: str | None = None,
                     conn, mission_id, row["tool"] or "cli", "raw",
                     result.get("log", ""))
                 db.update_command_state(conn, row["id"], "ran",
-                                        exit_code=result.get("exit"))
+                                        exit_code=result.get("exit"),
+                                        output_ref=evidence_ref)
                 db.log_audit(conn, "dashboard", "command.run_all",
                              f"cmd={row['id']} exit={result.get('exit')} "
                              f"facts={facts_added}")

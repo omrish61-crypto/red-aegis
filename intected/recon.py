@@ -129,7 +129,7 @@ def run_recon(conn, mission_id: int, target: str,
         # persist raw + parse into facts
         fact_count = 0
         if output.strip():
-            fact_count = _ingest(conn, mission_id, tool, target, output)
+            fact_count, _ref = _ingest(conn, mission_id, tool, target, output)
         results.append({"name": st["name"], "tool": tool, "gate": "approved",
                         "facts": fact_count,
                         "exit": result.get("exit"),
@@ -152,6 +152,14 @@ def _ingest(conn, mission_id: int, tool: str, target: str, output: str) -> int:
         f.write(output)
     from .parsing import EXTRACTORS, parse_tool_output
     if parser_tool not in EXTRACTORS:
-        return 0  # no extractor (e.g. curl headers) — raw evidence is the record
+        db.log_audit(conn, "recon", "evidence.raw",
+                     f"tool={tool} target={target} facts=0 "
+                     f"ref={os.path.basename(raw_path)} (no extractor)")
+        return 0, os.path.basename(raw_path)
     res = parse_tool_output(conn, mission_id, parser_tool, raw_path)
-    return len(res.get("facts", []))
+    n = len(res.get("facts", []))
+    # every evidence file must be traceable — audit even when 0 facts parsed
+    db.log_audit(conn, "recon", "evidence.raw",
+                 f"tool={tool} target={target} facts={n} "
+                 f"ref={os.path.basename(raw_path)}")
+    return n, os.path.basename(raw_path)
