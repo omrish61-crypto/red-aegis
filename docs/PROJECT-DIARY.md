@@ -777,3 +777,19 @@ Full report: docs/KALI-TOOLS-POC.md.
 - Re-ingested mission-8 real evidence: facts now include version
   {port:3000, product:"OWASP Juice Shop"} + decoded http-title.
 - Suite 219 passed + 1 skipped.
+
+### nuclei FULLY FIXED (06:10-06:25) — root-cause chain
+1. kali package nuclei 3.8.0-0kali1 broken (banner-only; wchan do_wait).
+   Replaced with official v3.11.1 static build (broken kept as
+   nuclei.broken-3.8.0).
+2. REAL hang: nuclei blocks on TTY stdin — </dev/null unblocks it
+   (execute_streaming now passes stdin=DEVNULL — project fix committed).
+3. Startup checks (PD API 65.109.43.133:443 + IPv6 Google DNS) blackholed by
+   WSL2 NAT → iptables REJECT (PD IP) + ip6tables REJECT all IPv6 → fail
+   fast, scan proceeds.
+4. -duc must NOT be used (breaks template index load: "no templates
+   provided").
+RESULT: 961 templates load; REAL finding — prometheus-metrics [medium] at
+http://127.0.0.1:3000/metrics (verified HTTP 200, 26KB real metrics) —
+ingested as a fact in mission 8 (evidence: nuclei_juice_20260811.jsonl +
+metrics_juice_20260811.raw).

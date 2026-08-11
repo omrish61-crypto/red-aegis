@@ -48,12 +48,23 @@ available for any tool needed.
 
 ## Actionable gaps (honest)
 
-1. **nuclei templates — RESOLVED 2026-08-11 05:10**: templates ARE present at
-   /root/.local/nuclei-templates (30 dirs: cves, exposures, http, workflows...).
-   `nuclei -ut` reports "no new updates" (up to date). Earlier "missing" was a
-   wrong-path check (/root/.local/share vs /root/.local). Bounded scans run
-   end-to-end (Juice Shop + scanme, rl 10 c 5, exit 0) — no findings tripped
-   in the bounded windows; longer runs / more targets may surface CVEs.
+1. **nuclei — FULLY RESOLVED 2026-08-11 06:10**. Root cause chain (all
+   diagnosed with real evidence):
+   a. The kali package `nuclei 3.8.0-0kali1` is broken (banner-only, spawns
+      a child and waits — wchan do_wait; no scan output at any flag combo).
+   b. Replaced with the official static build v3.11.1 (GitHub releases,
+      46MB zip); broken binary preserved at /usr/bin/nuclei.broken-3.8.0.
+   c. **The real hang**: nuclei waits on TTY stdin — `</dev/null` fixes it
+      (proven: instant "Targets loaded" + real scan output).
+   d. Nuclei's startup checks (PD API 65.109.43.133:443 + IPv6 Google DNS
+      2001:4860:4860::8888) are blackholed by the WSL2 NAT and used to hang
+      the process BEFORE scanning. Fix: iptables REJECT for the PD API IP +
+      ip6tables REJECT all IPv6 → checks fail fast, scan proceeds.
+   e. `-duc` must NOT be used — it prevents the template index/version
+      resolution that loads the template set ("no templates provided").
+   Result: 961 templates loaded, REAL findings against Juice Shop
+   ([owasp-juice-shop-detect] [http] [info]) and scanme.nmap.org.
+   The project's execute_streaming now closes stdin (stdin=DEVNULL).
 2. **impacket** absent — no psexec.py/wmiexec.py examples (needed for AD
    post-exploitation; not relevant to the current lab).
 3. **amass** passive mode degraded (libpostal_data).

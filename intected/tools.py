@@ -242,6 +242,7 @@ def execute_streaming(tool: str, params: dict,
             ["wsl", "-d", "kali-linux", "-u", "root", "-e", "bash", "-lc",
              " ".join(shlex.quote(c) for c in cmd)],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stdin=subprocess.DEVNULL,  # nuclei blocks on TTY stdin — close it
             errors="replace")
         try:
             for raw in proc.stdout:  # streams line-by-line
