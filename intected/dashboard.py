@@ -182,6 +182,114 @@ def create_app(token: str | None = None,
         return {"mission_id": mission_id, "targets": targets,
                 "tasks_created": created, "tasks_existing": existing}
 
+    @app.post("/api/commands/{command_id}/run")
+    def api_command_run(command_id: int,
+                        token: str | None = Query(None),
+                        x_intected_token: str | None = Header(None),
+                        authorization: str | None = Header(None),
+                        origin: str | None = Header(None)):
+        """Run ONE queued command through the Supervisor gate. Evidence is
+        persisted (raw output + parsed facts); state -> ran."""
+        if not _authorized(x_intected_token or token, origin or authorization):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        conn = _open()
+        try:
+            row = conn.execute("SELECT * FROM commands WHERE id=?",
+                               (command_id,)).fetchone()
+            if row is None:
+                return JSONResponse({"error": "no such command"}, status_code=404)
+            if row["state"] not in ("proposed", "approved"):
+                return JSONResponse(
+                    {"error": f"state {row['state']} is not runnable"},
+                    status_code=409)
+            mission = db.get_mission(conn, row["mission_id"])
+            hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+            # supervisor gate (Agent 1): scope + aggression
+            try:
+                from .scope import check_command
+                check_command(row["cmd"], hosts)
+            except Exception as exc:
+                db.update_command_state(conn, command_id, "rejected", exc=exc)
+                return JSONResponse(
+                    {"error": f"supervisor rejected: {exc}",
+                     "state": "rejected"}, status_code=422)
+            # execute (operator-gated, bounded, real-time capture)
+            from .tools import execute_raw
+            result = execute_raw(row["cmd"], timeout=600)
+            output = result.get("log", "")
+            # persist evidence + facts
+            from .cli import _persist_run
+            facts_added, evidence_ref = _persist_run(
+                conn, row["mission_id"], row["tool"] or "cli", "raw", output)
+            db.update_command_state(conn, command_id, "ran",
+                                    exit_code=result.get("exit"),
+                                    output_ref=evidence_ref)
+            db.log_audit(conn, "dashboard", "command.run",
+                         f"cmd={command_id} exit={result.get('exit')} "
+                         f"facts={facts_added} ref={evidence_ref}")
+        finally:
+            conn.close()
+        return {
+            "command_id": command_id,
+            "state": "ran",
+            "exit_code": result.get("exit"),
+            "elapsed_s": result.get("elapsed_s"),
+            "facts_added": facts_added,
+            "evidence_ref": evidence_ref,
+            "output_head": output[:1200],
+        }
+
+    @app.post("/api/missions/{mission_id}/commands/run-all")
+    def api_commands_run_all(mission_id: int,
+                             token: str | None = Query(None),
+                             x_intected_token: str | None = Header(None),
+                             authorization: str | None = Header(None),
+                             origin: str | None = Header(None)):
+        """Run ALL runnable queued commands for the mission (sequentially)."""
+        if not _authorized(x_intected_token or token, origin or authorization):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        conn = _open()
+        from .tools import execute_raw
+        from .cli import _persist_run
+        from .scope import check_command
+        try:
+            rows = conn.execute(
+                "SELECT * FROM commands WHERE mission_id=? AND state IN "
+                "('proposed','approved') ORDER BY id", (mission_id,)).fetchall()
+            if not rows:
+                return {"mission_id": mission_id, "ran": 0, "results": [],
+                        "note": "no runnable commands in the queue"}
+            mission = db.get_mission(conn, mission_id)
+            hosts = json.loads(mission["allowed_hosts_json"] or "[]")
+            results = []
+            for row in rows:
+                try:
+                    check_command(row["cmd"], hosts)
+                except Exception as exc:
+                    db.update_command_state(conn, row["id"], "rejected", exc=exc)
+                    results.append({"command_id": row["id"], "state": "rejected",
+                                    "reason": str(exc)})
+                    continue
+                result = execute_raw(row["cmd"], timeout=600)
+                facts_added, evidence_ref = _persist_run(
+                    conn, mission_id, row["tool"] or "cli", "raw",
+                    result.get("log", ""))
+                db.update_command_state(conn, row["id"], "ran",
+                                        exit_code=result.get("exit"))
+                db.log_audit(conn, "dashboard", "command.run_all",
+                             f"cmd={row['id']} exit={result.get('exit')} "
+                             f"facts={facts_added}")
+                results.append({"command_id": row["id"], "state": "ran",
+                                "exit_code": result.get("exit"),
+                                "elapsed_s": result.get("elapsed_s"),
+                                "facts_added": facts_added,
+                                "evidence_ref": evidence_ref,
+                                "output_head": (result.get("log") or "")[:400]})
+            return {"mission_id": mission_id, "ran": len(results),
+                    "results": results}
+        finally:
+            conn.close()
+
     @app.get("/api/missions/{mission_id}/plan")
     def api_plan(mission_id: int,
                  token: str | None = Query(None),

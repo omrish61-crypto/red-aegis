@@ -800,3 +800,19 @@ Fixed: cmd_run now persists raw output to <state>/evidence/mission-N/ + parses
 into facts (facts_added + evidence_ref in the result). Proven live: the
 1-3500 scan of 127.0.0.1 stored its port-3000 finding as a fact with sha256
 evidence.
+
+### Dashboard Run buttons (06:45, user request)
+- Per-command **Run** button + **Run all** button in the Command Queue
+  (clean UI: card-head, .btn.mini, exit-code pills, flash toast).
+- POST /api/commands/{id}/run + POST /api/missions/{id}/commands/run-all —
+  supervisor-gated (check_command: scope + aggression), execute_raw via WSL
+  (stdin closed), evidence persisted + facts parsed, state -> ran/rejected
+  with exit_code + output_ref. db.update_command_state() added.
+- Bugs fixed live: endpoints are closures (not class methods) -> _authorized
+  not self._authorized; conn=_open() missing; connection leaks on every
+  early-return path (404/409/422) -> try/finally restructure; tests updated
+  (fresh conn per test, 401 test uses id 999).
+- LIVE VERIFIED in browser: mission 1 queue shows 2 Run buttons + "Run all
+  (2)"; clicked Run on cmd 2 -> ran through gate -> curl DNS fail (exit 6,
+  honest) -> exit pill shown, Run all -> "Run all (1)", evidence file saved.
+- Suite 221 passed + 1 skipped.

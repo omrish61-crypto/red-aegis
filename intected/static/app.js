@@ -68,11 +68,23 @@ function render() {
     '<div style="color:var(--muted)">no tasks yet</div>';
   $("task-count").textContent = `(${b.tasks.length})`;
 
-  // Command queue
-  $("cmd-table").querySelector("tbody").innerHTML = [...b.commands].reverse().map((c) =>
-    `<tr><td>${c.id}</td><td>${badge(c.state)}</td>
-     <td class="mono">${esc(c.cmd)}</td><td>${c.task_id ?? ""}</td></tr>`).join("") ||
-    '<tr><td colspan="4" style="color:var(--muted)">no commands yet</td></tr>';
+  // Command queue — runnable commands get a Run button (supervisor-gated)
+  const runnable = (c) => c.state === "proposed" || c.state === "approved";
+  const cmdRows = [...b.commands].reverse().map((c) => {
+    const runBtn = runnable(c)
+      ? `<button class="btn mini" data-run-cmd="${c.id}" title="Run through the supervisor gate">Run</button>`
+      : `<span class="pill ${c.state}">${badge(c.state)}</span>`;
+    const out = c.exit_code !== null && c.exit_code !== undefined
+      ? `<span class="pill ok">exit ${c.exit_code}</span>` : "";
+    return `<tr><td>${c.id}</td>${runBtn}
+     <td class="mono">${esc(c.cmd)}</td><td>${c.task_id ?? ""}</td><td>${out}</td></tr>`;
+  }).join("");
+  $("cmd-table").querySelector("tbody").innerHTML = cmdRows ||
+    '<tr><td colspan="5" style="color:var(--muted)">no commands yet</td></tr>';
+  const runnableCount = b.commands.filter(runnable).length;
+  $("run-all").disabled = runnableCount === 0;
+  $("run-all").textContent = runnableCount
+    ? `Run all (${runnableCount})` : "Run all";
 
   // Timeline
   $("audit-list").innerHTML = b.audit.map((a) =>
@@ -140,7 +152,56 @@ document.addEventListener("DOMContentLoaded", () => {
   if (form) form.addEventListener("submit", addTarget);
   const start = document.getElementById("start-test");
   if (start) start.addEventListener("click", startTest);
+  // delegated click handling: per-command Run + Run all
+  document.addEventListener("click", (e) => {
+    const runBtn = e.target.closest("[data-run-cmd]");
+    if (runBtn) { runCommand(Number(runBtn.dataset.runCmd), runBtn); return; }
+    if (e.target.closest("#run-all")) { runAllCommands(); return; }
+  });
 });
+
+async function runCommand(cmdId, btn) {
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  btn.disabled = true; btn.textContent = "running…";
+  try {
+    const r = await fetch(`/api/commands/${cmdId}/run?token=${encodeURIComponent(token)}`,
+      { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) { flash(`run failed: ${d.error || r.status}`, true); return; }
+    flash(`cmd ${cmdId} ran — exit ${d.exit_code}, ${d.facts_added} fact(s) added`, false);
+  } catch (err) { flash(`run error: ${err.message}`, true); }
+  finally { tick(); }
+}
+
+async function runAllCommands() {
+  const missionId = document.querySelector("#mission-select").value;
+  const token = new URLSearchParams(window.location.search).get("token") || "";
+  const btn = document.getElementById("run-all");
+  btn.disabled = true; btn.textContent = "running…";
+  try {
+    const r = await fetch(`/api/missions/${missionId}/commands/run-all?token=${encodeURIComponent(token)}`,
+      { method: "POST" });
+    const d = await r.json();
+    if (!r.ok) { flash(`run-all failed: ${d.error || r.status}`, true); return; }
+    const summary = d.results.map((x) =>
+      `${x.command_id}:${x.state}${x.exit_code !== undefined ? "(" + x.exit_code + ")" : ""}${x.facts_added ? " +" + x.facts_added + "f" : ""}`).join("  ");
+    flash(`run-all done — ${d.results.length} command(s): ${summary}`, false);
+  } catch (err) { flash(`run-all error: ${err.message}`, true); }
+  finally { tick(); }
+}
+
+function flash(msg, isErr) {
+  let el = document.getElementById("flash");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "flash";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.className = isErr ? "flash err" : "flash";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.remove(), 6000);
+}
 
 function showAuthError() {
   $("conn").textContent = "auth error";

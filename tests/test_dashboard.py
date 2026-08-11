@@ -239,6 +239,44 @@ class ApiTest(unittest.TestCase):
         r = self.client.post(f"/api/missions/{self.mid}/start")
         self.assertEqual(r.status_code, 401)
 
+    def test_command_run_endpoints(self):
+        """Run/Run-all endpoints: auth, gating, state transitions."""
+        # 401 without token (auth fires before any DB access)
+        r = self.client.post("/api/commands/999/run")
+        self.assertEqual(r.status_code, 401)
+        # run-all: 401 without token
+        r = self.client.post(f"/api/missions/{self.mid}/commands/run-all")
+        self.assertEqual(r.status_code, 401)
+        # run-all with token but no runnable commands -> clean empty result
+        r = self.client.post(
+            f"/api/missions/{self.mid}/commands/run-all?token={self.token}")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["ran"], 0)
+        self.assertIn("results", data)
+
+    def test_command_run_supervisor_block(self):
+        """A command targeting an out-of-scope host is rejected (422)."""
+        from intected import db as _db
+        conn = _db.connect(self._tmp.name)
+        _db.init_db(conn)
+        _db.add_command(conn, self.mid,
+                        "nikto -h http://10.9.9.9", tool="nikto")
+        cmd_id = conn.execute(
+            "SELECT id FROM commands WHERE mission_id=? ORDER BY id DESC LIMIT 1",
+            (self.mid,)).fetchone()[0]
+        conn.close()
+        r = self.client.post(f"/api/commands/{cmd_id}/run?token={self.token}")
+        self.assertEqual(r.status_code, 422)
+        data = r.json()
+        self.assertEqual(data["state"], "rejected")
+        # state persisted
+        conn = _db.connect(self._tmp.name)
+        st = conn.execute("SELECT state FROM commands WHERE id=?",
+                          (cmd_id,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(st, "rejected")
+
     def test_plan_endpoint(self):
         """Evidence-based plan API (methodology 11/12): graph + ranked plan."""
         r = self.client.get(f"/api/missions/{self.mid}/plan",

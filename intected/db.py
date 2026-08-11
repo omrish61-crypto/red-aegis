@@ -280,6 +280,27 @@ def get_facts(conn, mission_id: int, fact_type: str | None = None) -> list[sqlit
 
 # --- Commands ---------------------------------------------------------------
 
+def update_command_state(conn, command_id: int, state: str,
+                         exit_code: int | None = None,
+                         output_ref: str | None = None,
+                         exc: Exception | None = None) -> None:
+    """Transition a command's state (proposed/approved -> ran/rejected/failed)."""
+    if state not in COMMAND_STATES:
+        raise ValueError(f"bad command state {state!r}")
+    if output_ref is None:
+        row = conn.execute("SELECT output_ref FROM commands WHERE id=?",
+                           (command_id,)).fetchone()
+        output_ref = row[0] if row else None
+    rationale = None
+    if exc:
+        rationale = f"rejected by supervisor: {exc}"
+    conn.execute(
+        "UPDATE commands SET state=?, exit_code=?, output_ref=?, "
+        "rationale=CASE WHEN ? IS NULL THEN rationale ELSE ? END WHERE id=?",
+        (state, exit_code, output_ref, rationale, rationale, command_id))
+    conn.commit()
+
+
 def add_command(conn, mission_id: int, cmd: str, tool: str | None = None,
                 rationale: str | None = None, task_id: int | None = None) -> int:
     cur = conn.execute(

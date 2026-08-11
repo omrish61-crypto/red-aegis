@@ -227,6 +227,39 @@ def probe_all_tools() -> dict[str, str]:
 
 
 # --- Real-time log capture (addendum: the AI can't analyze unseen logs) -----
+def execute_raw(cmd: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    """Execute a raw shell command via the kali image (real-time capture).
+
+    Used for OPERATOR-GATED runs from the dashboard queue: the command must
+    have passed supervisor.check_command already (scope + aggression gate).
+    stdin is closed (nuclei-style TTY hangs) and output streams line-by-line.
+    """
+    import time as _time
+    started = _time.time()
+    lines: list[str] = []
+    try:
+        proc = subprocess.Popen(
+            ["wsl", "-d", "kali-linux", "-u", "root", "-e", "bash", "-lc", cmd],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            stdin=subprocess.DEVNULL, errors="replace")
+        try:
+            for raw in proc.stdout:
+                lines.append(raw.rstrip("\n"))
+        finally:
+            try:
+                proc.wait(timeout=max(1, timeout - (_time.time() - started)))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                lines.append("[timeout exceeded — process killed]")
+        return {"exit": proc.returncode, "log": "\n".join(lines),
+                "log_lines": lines,
+                "elapsed_s": round(_time.time() - started, 2)}
+    except Exception as exc:
+        return {"exit": -1, "log": f"execution error: {exc}",
+                "log_lines": [f"execution error: {exc}"],
+                "elapsed_s": round(_time.time() - started, 2)}
+
+
 def execute_streaming(tool: str, params: dict,
                       timeout: int = DEFAULT_TIMEOUT) -> dict:
     """Execute with REAL-TIME stdout capture: each line is appended to

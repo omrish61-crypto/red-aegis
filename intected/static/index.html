@@ -41,9 +41,13 @@
           <div id="task-tree" class="tree"></div>
         </div>
         <div class="card">
-          <h2>Command Queue</h2>
+          <div class="card-head">
+            <h2>Command Queue</h2>
+            <button id="run-all" class="btn primary mini" disabled
+                    title="Run every runnable command through the supervisor gate">Run all</button>
+          </div>
           <table id="cmd-table">
-            <thead><tr><th>#</th><th>state</th><th>command</th><th>task</th></tr></thead>
+            <thead><tr><th>#</th><th>run</th><th>command</th><th>task</th><th>result</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
