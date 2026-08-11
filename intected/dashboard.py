@@ -203,9 +203,12 @@ def create_app(token: str | None = None,
                     {"error": f"state {row['state']} is not runnable"},
                     status_code=409)
             # safe-mode: dashboard NEVER runs exploitation tools
-            tool_name = (row.get("tool") or "").lower()
-            from .tools import SAFE_TOOLS as _safe_tools
-            if tool_name and tool_name not in _safe_tools:
+            _cmd_lower = (row["cmd"] or "").lower()
+            _exploitation_indicators = [
+                "sqlmap", "msfconsole", "msfvenom", "john", "hashcat",
+                "hydra", "medusa", "ncrack", "beef", "searchsploit",
+            ]
+            if any(ind in _cmd_lower for ind in _exploitation_indicators):
                 return JSONResponse(
                     {"error": "active exploitation blocked — "
                      "dashboard is locked to recon-only tools",

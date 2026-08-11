@@ -298,7 +298,7 @@ class ApiTest(unittest.TestCase):
         """Plan-run endpoint: auth, unknown rank, happy path (exec mocked)."""
         from unittest import mock
         # 401 without token (auth fires before any DB access)
-        r = self.client.post(f"/api/missions/{self.mid}/plan/P5/run")
+        r = self.client.post(f"/api/missions/{self.mid}/plan/P6/run")
         self.assertEqual(r.status_code, 401)
         # 404 for an unknown rank
         r = self.client.post(
@@ -313,10 +313,10 @@ class ApiTest(unittest.TestCase):
              mock.patch("intected.cli._persist_run",
                         return_value=(2, "plan_ev.raw")):
             r = self.client.post(
-                f"/api/missions/{self.mid}/plan/P5/run?token={self.token}")
+                f"/api/missions/{self.mid}/plan/P6/run?token={self.token}")
         self.assertEqual(r.status_code, 200)
         data = r.json()
-        self.assertEqual(data["rank"], "P5")
+        self.assertEqual(data["rank"], "P6")
         self.assertIn("area", data)
         self.assertIn("command", data)
         self.assertEqual(data["exit_code"], 0)
@@ -342,7 +342,7 @@ class ApiTest(unittest.TestCase):
                         side_effect=ScopeViolation(
                             "host 10.9.9.9 is outside allowed scope")):
             r = self.client.post(
-                f"/api/missions/{self.mid}/plan/P5/run?token={self.token}")
+                f"/api/missions/{self.mid}/plan/P6/run?token={self.token}")
         self.assertEqual(r.status_code, 422)
         self.assertIn("supervisor rejected", r.json()["error"])
 

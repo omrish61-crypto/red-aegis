@@ -72,12 +72,11 @@ class SupervisorTest(unittest.TestCase):
         self.assertTrue(r["ok"])
 
     def test_blocks_bruteforce_tools(self):
-        # brute-force / data-extraction tools are not in the registry at all —
-        # rejected at the registry level (they never reach execution)
-        with self.assertRaises(tools.ToolError):
+        # brute-force tools are rejected by safe mode (not in SAFE_TOOLS)
+        with self.assertRaises(ValueError):
             supervisor.validate_tool_call(
                 "hydra", {"target": "scanme.nmap.org"}, self.SCOPE)
-        with self.assertRaises(tools.ToolError):
+        with self.assertRaises(ValueError):
             supervisor.validate_tool_call(
                 "sqlmap", {"target": "scanme.nmap.org", "params": "--dump"},
                 self.SCOPE)
