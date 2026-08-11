@@ -757,3 +757,10 @@ Full report: docs/KALI-TOOLS-POC.md.
    (P1 Auth/AuthZ first, Apache+Tomcat, 6 surface paths).
 4. **nuclei**: focused -tags cve run against scanme (outdated Apache 2.4.7),
    bounded 240s at rl 10 — result logged when complete.
+
+### nuclei follow-up (05:25)
+- scanme.nmap.org -tags cve (240s, rl 10): EXIT 124 (bounded), 0 findings —
+  honest zero; scanme's minimal Apache 2.4.7 does not trip conservative CVE
+  templates. Nuclei operational (templates load, scans run end-to-end).
+- Follow-up: all-tags run against the lab Juice Shop (:3000, 300s, rl 10) —
+  designed-vulnerable target; result logged when complete.
