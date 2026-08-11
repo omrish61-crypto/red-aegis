@@ -44,6 +44,69 @@ Technical facts ({fact_count} pieces of evidence):
 {surface_summary}"""
 
 
+def _build_fallback_summary(grade: GradeReport, facts: dict[str, list]) -> str:
+    """Build a useful plain-English fallback when the LLM bridge is unreachable.
+
+    Includes the grade, count of issues, and one actionable sentence so the
+    report is still valuable even without the LLM.
+    """
+    issue_count = len(grade.deductions)
+
+    # Determine the single most critical issue
+    top_issue = ""
+    if grade.deductions:
+        # Sort deductions by points (highest first), then by reason
+        sorted_deductions = sorted(
+            grade.deductions, key=lambda d: (-d["points"], d["reason"]))
+        top = sorted_deductions[0]
+        top_issue = f"The most urgent finding: {top['reason'].lower()}. {top['detail'][:200]}."
+
+    # One concrete action
+    if issue_count == 0:
+        action = ("Your security posture looks solid. Continue regular patching "
+                  "and consider a penetration test to validate these results.")
+    elif "credential" in str(grade.deductions).lower():
+        action = ("Your immediate priority: change all default passwords on "
+                  "every device. Use strong, unique passwords managed by a "
+                  "password manager like Bitwarden (free).")
+    elif any("Port 3389" in d["reason"] for d in grade.deductions):
+        action = ("Your immediate priority: disable Remote Desktop (RDP) on "
+                  "your router's firewall. Settings → Port Forwarding → "
+                  "delete rule for port 3389.")
+    elif any("Port 445" in d["reason"] for d in grade.deductions):
+        action = ("Your immediate priority: close port 445 (SMB/file sharing) "
+                  "on your firewall. This is the #1 ransomware entry point "
+                  "for small businesses.")
+    elif any("Outdated" in d["reason"] for d in grade.deductions):
+        action = ("Your immediate priority: update your outdated software. "
+                  "Run system updates on your server and check your software "
+                  "vendor websites for security patches.")
+    else:
+        action = ("Your immediate priority: review the open ports and services "
+                  "listed below. Close anything you don't actively use, and "
+                  "restrict access to your office IP address for everything else.")
+
+    return (
+        f"INTECTED Security Report — Grade: {grade.letter} ({grade.score}/100)\n"
+        f"\n"
+        f"This automated report identified {issue_count} security issue(s) "
+        f"across {grade.fact_count} pieces of evidence collected from your "
+        f"network scan.\n"
+        f"\n"
+        f"Your overall security grade is a {grade.letter}. "
+        f"{'This needs immediate attention.' if grade.letter in ('D','F') else 'There is room for improvement.' if grade.letter == 'C' else 'Your posture is generally good.'}\n"
+        f"\n"
+        f"{top_issue}\n"
+        f"\n"
+        f"WHAT TO DO TODAY:\n"
+        f"{action}\n"
+        f"\n"
+        f"(Note: this is an automated fallback summary — the LLM-powered "
+        f"executive briefing was unavailable. Review the checklist below for "
+        f"detailed remediation steps your IT team can follow.)"
+    )
+
+
 def generate_summary(grade: GradeReport, facts: dict[str, list]) -> str:
     """Call the LLM bridge and return a 3-paragraph plain-English summary."""
     import httpx
@@ -75,7 +138,7 @@ def generate_summary(grade: GradeReport, facts: dict[str, list]) -> str:
     )
 
     try:
-        with httpx.Client(timeout=40) as client:
+        with httpx.Client(timeout=25) as client:
             resp = client.post(
                 f"{BRIDGE_URL}/chat/completions",
                 json={
@@ -88,12 +151,6 @@ def generate_summary(grade: GradeReport, facts: dict[str, list]) -> str:
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
             return content.strip()
-    except Exception as exc:
+    except Exception:
         # graceful fallback — the summary engine is never a hard dependency
-        return (
-            f"RedAegis Security Report — Grade: {grade.letter} ({grade.score}/100)\n\n"
-            f"The automated summary could not be generated ({exc}). "
-            f"Please review the detailed findings below.\n\n"
-            f"Key issues: {len(grade.deductions)} risk(s) identified. "
-            f"Top action: review the Checklist section for your IT team."
-        )
+        return _build_fallback_summary(grade, facts)

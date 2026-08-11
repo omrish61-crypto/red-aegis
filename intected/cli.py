@@ -237,6 +237,58 @@ def cmd_audit(args) -> int:
     return EXIT_OK
 
 
+def cmd_report(args) -> int:
+    """SMB security report: compute letter grade → generate summary →
+    produce fix-it checklist. Mirrors the dashboard GET /api/missions/{id}/report
+    endpoint but outputs plain text to stdout."""
+    from .evidence import _default_target
+    from .grading import compute_grade, _load_facts
+    from .summary import generate_summary
+    from .checklist import generate_checklist
+
+    conn = _open_db()
+    try:
+        target = args.target or _default_target(conn, args.mission) or f"mission-{args.mission}"
+        grade = compute_grade(conn, args.mission, target)
+        facts = _load_facts(conn, args.mission, target)
+        summary = generate_summary(grade, facts)
+        checklist = generate_checklist(grade, facts)
+
+        print("╔══════════════════════════════════════════╗")
+        print("║     INTECTED Security Report             ║")
+        print("╠══════════════════════════════════════════╣")
+        print(f"║ Target : {target:<31}║")
+        print(f"║ Grade  : {grade.letter} ({grade.score}/100)                      ║")
+        print("╚══════════════════════════════════════════╝")
+        print()
+        print("── Executive Summary ──")
+        print(summary)
+        print()
+        print("── Risk Breakdown ──")
+        if grade.deductions:
+            for d in grade.deductions:
+                print(f"  [{d['points']} pts] {d['reason']}")
+        else:
+            print("  No risk deductions — clean scan")
+        print()
+        print("── Fix-It Checklist ──")
+        if checklist:
+            for i, item in enumerate(checklist, 1):
+                priority_marker = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}.get(
+                    item["priority"], "⚪")
+                print(f"\n  {i}. [{priority_marker} {item['priority'].upper()}] {item['title']}")
+                print(f"     {item['steps'].replace(chr(10), chr(10) + '     ')}")
+        else:
+            print("  No remediation steps needed.")
+        print()
+        return EXIT_OK
+    except Exception as exc:
+        print(f"report error: {exc}", file=sys.stderr)
+        return EXIT_ERR
+    finally:
+        conn.close()
+
+
 def cmd_evidence(args) -> int:
     """Evidence graph for a mission (methodology 12) — structured per-target
     model: services, technologies, WAF indicators, attack surface."""
@@ -724,6 +776,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mission", type=int, required=True)
     p.add_argument("--target", help="optional target override")
     p.set_defaults(fn=cmd_plan)
+
+    p = sub.add_parser("report", help="SMB security report: grade, summary, and fix-it checklist")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", help="optional target override")
+    p.set_defaults(fn=cmd_report)
 
     p = sub.add_parser("run", help="run a registered tool through the Supervisor gate")
     p.add_argument("--mission", type=int, required=True)
