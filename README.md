@@ -42,6 +42,26 @@ P3 ✅  dashboard: process + results + mission views       (2026-08-10, G4a met)
 P4 ✅  pentest-core integration + hardening + scorecard   (2026-08-10, G4b met)
 ```
 
+## Multi-agent execution layer (Supervisor gate)
+
+```
+intected run --mission N --tool <name> --target <t> [--rate N] [--operator-approved]
+intected run --mission 3 --tool nmap_ports --target scanme.nmap.org   # recon
+```
+
+- **Tool registry** (intected/tools.py): predefined Python functions with
+  typed params + rate caps — the LLM can NEVER execute raw bash; it can only
+  reference registered tools.
+- **Supervisor** (intected/supervisor.py): every tool call is gated — scope
+  (deny by default), rate caps (300 pps), no DoS/brute-force/data-extraction
+  tools, full `-p-` requires explicit operator approval.
+- **Live CVE** (intected/cve.py): NIST NVD API v2 lookups from banner-derived
+  CPEs (throttled, cached, honest `nvd_unavailable` on failure) — never
+  LLM-memory CVEs.
+- **PII guard** (intected/pii.py): parse-time detection + redaction
+  (GDPR/SOC2 behavior: prove access, never extract PII).
+- Review + rationale: docs/ARCHITECTURE-REVIEW.md.
+
 ## Evidence-based planning (methodology 11-13)
 
 ```

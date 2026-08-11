@@ -644,3 +644,47 @@ test is based on a previous finding.
   /login.php evidence) — exactly the evidence-based branching requested.
 - Tests: 176 → 185 (evidence graph aggregation, WAF signals, note-path
   lifting, scoring, web/network branches, empty mission, plan endpoint + auth).
+
+---
+
+## 2026-08-11 03:55–04:30 — Multi-agent execution layer + architecture review
+
+**Request:** implement the multi-agent spec (Supervisor/Recon/Expert agents,
+zero-hallucination, live NVD, no-DoS, GDPR/SOC2 behavior, function-calling,
+queue) AND review it — good and bad.
+
+- intected/tools.py: tool registry (nmap_ports, nmap_services, http_headers,
+  nikto, ffuf_content, nuclei) — typed params, rate caps (300 pps), timeouts;
+  the ONLY execution path (no raw bash).
+- intected/supervisor.py: Agent-1 gate — scope deny-by-default, rate bounds,
+  DoS/brute-force/data-extraction bans, full -p- needs operator approval.
+- intected/cve.py: live NVD v2 client (7s throttle, cache, honest failures);
+  banner->CPE 2.3 (curated alias httpd->http_server). Live: Apache 2.4.7 ->
+  10 real CVEs.
+- intected/pii.py: email/phone/cc/ssn detect+redact.
+- CLI: intected run; tests 185 -> 201.
+- Review doc: docs/ARCHITECTURE-REVIEW.md — GOOD: supervisor gate, zero-
+  hallucination, NVD, rate caps, PII; BAD (documented): Redis overkill
+  (SQLite tasks suffice), "full Kali exploitation" conflicts with operator
+  approval + legal policy, SOC2-as-code claims rejected, NVD loose-match
+  caveat.
+
+---
+
+## 2026-08-11 04:30–05:00 — Multi-agent addendum: decision matrix, stealth configs, dynamic updating
+
+**Requests (addendum sections 6-9 + log-parsing):** deterministic tool
+selection, supervisor-enforced stealth defaults, pre-flight tool version
+validation, real-time stdout capture, nuclei template updates, WAF-bypass KB.
+
+- intected/matrix.py: IF/THEN decision matrix on the footprint (WAF-aware;
+  no masscan; metasploit stays operator-gated). Live: scanme -> ffuf_content.
+- tools.py: SAFE_DEFAULTS (nmap --max-rate 50 -T3 --data-length 32, ffuf
+  -t 5 -p 1 delay 1s, nuclei -rl 10 -c 5) enforced in _build_command (tests
+  assert the flags); probe_tool() ToolVersionValidator (real --version/--help
+  from the kali image, cached for planner context); execute_streaming()
+  real-time line-by-line stdout capture.
+- intected/waf_kb.py: local markdown KB + token-overlap retrieval (honest
+  alternative to ChromaDB/LangChain); `intected waf-kb seed|query`.
+- CLI: tools (defaults|probe), matrix, waf-kb; tests 201 -> 208.
+- Review updated: docs/ARCHITECTURE-REVIEW.md addendum section.

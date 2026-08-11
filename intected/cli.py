@@ -294,6 +294,113 @@ def cmd_plan(args) -> int:
         conn.close()
 
 
+def cmd_run(args) -> int:
+    """Run a tool through the Supervisor gate (Agent 1): registry-only tools,
+    scope-checked, rate-bounded, operator-approval required for full scans.
+    The LLM/planner can never call this directly with raw bash."""
+    import json as _json
+    from .scope import ScopeViolation
+    from .supervisor import validate_tool_call
+    from .tools import ToolError, execute
+    conn = _open_db()
+    try:
+        mission = db.get_mission(conn, args.mission)
+        if mission is None:
+            print(f"no such mission {args.mission}", file=sys.stderr)
+            return EXIT_ERR
+        import json as _j
+        hosts = _j.loads(mission["allowed_hosts_json"] or "[]")
+        params = {"target": args.target}
+        if args.rate:
+            params["rate"] = args.rate
+        if args.ports:
+            params["ports"] = args.ports
+        try:
+            validated = validate_tool_call(
+                args.tool, params, hosts,
+                operator_approved=args.operator_approved)
+        except (ToolError, ScopeViolation, ValueError) as exc:
+            print(f"SUPERVISOR BLOCKED: {exc}", file=sys.stderr)
+            return EXIT_ERR
+        print(f"supervisor: approved {validated['tool']} "
+              f"params={validated['params']}")
+        result = execute(args.tool, params)
+        if args.raw:
+            print(result["output"])
+        else:
+            print(_json.dumps(
+                {k: (v if k != "output" else v[:400] + ("…" if len(v) > 400 else ""))
+                 for k, v in result.items()}, indent=1, ensure_ascii=False))
+        return EXIT_OK
+    finally:
+        conn.close()
+
+
+def cmd_tools(args) -> int:
+    """ToolConfigurator + ToolVersionValidator (addendum 7/8A):
+    probe installed tool versions/flags (real, from THIS kali image) and
+    show the enforced stealth safe-defaults."""
+    from .tools import SAFE_DEFAULTS, probe_all_tools, probe_tool
+    if args.action == "probe":
+        tools = probe_all_tools() if not args.tool else {args.tool: probe_tool(args.tool)}
+        for name, info in tools.items():
+            print(f"== {name} ==")
+            print(f"   {info}")
+        return EXIT_OK
+    print("SAFE DEFAULTS (supervisor-enforced, section 7):")
+    for tool, cfg in SAFE_DEFAULTS.items():
+        print(f"  {tool:<14} {cfg}")
+    return EXIT_OK
+
+
+def cmd_matrix(args) -> int:
+    """Decision matrix (addendum 6): the next tool call for the footprint."""
+    import json as _json
+    from .evidence import _default_target, build_evidence_graph, stack_profile
+    from .matrix import next_tool_call
+    conn = _open_db()
+    try:
+        target = args.target or _default_target(conn, args.mission) or f"mission-{args.mission}"
+        graph = build_evidence_graph(conn, args.mission, target)
+        profile = stack_profile(graph)
+        profile["waf_detected"] = graph.waf["detected"]
+        call = next_tool_call(profile, graph.attack_surface, target)
+        print(f"TARGET : {target}")
+        print(f"STACK  : {_json.dumps({k: v for k, v in profile.items() if isinstance(v, bool)})}")
+        print(f"WAF    : {graph.waf['detected']} (conf {graph.waf['confidence']})")
+        if call:
+            print(f"NEXT   : {call['tool']} params={call['params']}")
+            print(f"WHY    : {call['why']}")
+        else:
+            print("NEXT   : none — footprint yields nothing actionable (no guessing)")
+        return EXIT_OK
+    finally:
+        conn.close()
+
+
+def cmd_wafkb(args) -> int:
+    """WAF-bypass knowledge base (addendum 8C, local KB — no vector DB)."""
+    from . import waf_kb
+    if args.action == "seed":
+        print(f"seeded: {waf_kb.seed_example()}")
+        return EXIT_OK
+    if args.action == "query":
+        if not args.query:
+            print("waf-kb query needs --query", file=sys.stderr)
+            return EXIT_ERR
+        results = waf_kb.query(args.query, top_k=args.top or 3)
+        if not results:
+            print("no KB matches — the AI gets NO WAF knowledge to invent from")
+            return EXIT_OK
+        for r in results:
+            print(f"== {r['doc']} (score {r['score']}) ==")
+            print(r["passage"][:500])
+            print()
+        return EXIT_OK
+    print(waf_kb.summary())
+    return EXIT_OK
+
+
 def cmd_keys(args) -> int:
     """Secure key store (secrets vault): set/get/list/rm/import.
 
@@ -559,6 +666,34 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mission", type=int, required=True)
     p.add_argument("--target", help="optional target override")
     p.set_defaults(fn=cmd_plan)
+
+    p = sub.add_parser("run", help="run a registered tool through the Supervisor gate")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--tool", required=True,
+                   help="registered tool name (nmap_ports, nikto, http_headers, ...)")
+    p.add_argument("--target", required=True)
+    p.add_argument("--ports", help="port list or top1000/all")
+    p.add_argument("--rate", type=int, help="packets/s (supervisor-capped)")
+    p.add_argument("--operator-approved", action="store_true",
+                   help="explicit operator approval (needed for full -p- scans)")
+    p.add_argument("--raw", action="store_true", help="print raw tool output")
+    p.set_defaults(fn=cmd_run)
+
+    p = sub.add_parser("tools", help="tool configurator/validator: safe defaults + live version probe")
+    p.add_argument("action", choices=["defaults", "probe"])
+    p.add_argument("--tool", help="probe one tool only")
+    p.set_defaults(fn=cmd_tools)
+
+    p = sub.add_parser("matrix", help="decision matrix: next tool call for the footprint")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", help="optional target override")
+    p.set_defaults(fn=cmd_matrix)
+
+    p = sub.add_parser("waf-kb", help="WAF-bypass knowledge base (local KB)")
+    p.add_argument("action", choices=["seed", "query", "summary"])
+    p.add_argument("--query", help="question (query action)")
+    p.add_argument("--top", type=int, help="top_k passages (default 3)")
+    p.set_defaults(fn=cmd_wafkb)
 
     p = sub.add_parser("keys", help="secure key store (DPAPI vault): set/get/list/rm/import")
     p.add_argument("action", choices=["set", "get", "list", "rm", "import"],
