@@ -16,6 +16,27 @@ import shlex
 import subprocess
 import time
 
+# --- safe-mode gate --------------------------------------------------------
+
+# Tools that are purely recon/passive — NO exploitation, NO brute force,
+# NO credential testing. Any tool NOT in this set is blocked when
+# safety_mode=True (the default).
+SAFE_TOOLS: set[str] = {
+    "nmap_ports",
+    "nmap_services",
+    "http_headers",
+    "nikto",
+    "whatweb",
+    "wafw00f",
+    "dig",
+    "ffuf_content",
+    "gobuster",
+    "dnsenum",
+    "fierce",
+    "dmitry",
+    "snmpwalk",
+}
+
 # --- registry --------------------------------------------------------------
 
 RATE_CAP = 300          # packets/s hard cap for any scanner
@@ -279,11 +300,22 @@ def execute_raw(cmd: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
 
 
 def execute_streaming(tool: str, params: dict,
-                      timeout: int = DEFAULT_TIMEOUT) -> dict:
+                      timeout: int = DEFAULT_TIMEOUT,
+                      safety_mode: bool = True) -> dict:
     """Execute with REAL-TIME stdout capture: each line is appended to
     'log_lines' as it is produced, so progress/failures feed back to the AI
-    even for long scans (no wait-until-exit black box)."""
+    even for long scans (no wait-until-exit black box).
+
+    When safety_mode is True (the default) only SAFE_TOOLS are allowed —
+    active exploitation tools are blocked to prevent accidental damage.
+    Pass safety_mode=False to opt into the full arsenal.
+    """
     import time as _time
+    if safety_mode and tool not in SAFE_TOOLS:
+        raise ToolError(
+            "active exploitation blocked in safe mode — "
+            "pass allow_exploitation=True to override"
+        )
     merged = validate_params(tool, params)
     started = _time.time()
     cmd = _build_command(tool, merged)
@@ -330,8 +362,19 @@ def _build_command(tool: str, merged: dict) -> list[str]:
     raise ToolError(f"unknown tool {tool!r}")
 
 
-def execute(tool: str, params: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
-    """Validate + execute a tool call. Returns structured result dict."""
+def execute(tool: str, params: dict, timeout: int = DEFAULT_TIMEOUT,
+            safety_mode: bool = True) -> dict:
+    """Validate + execute a tool call. Returns structured result dict.
+
+    When safety_mode is True (the default) only SAFE_TOOLS are allowed —
+    active exploitation tools are blocked to prevent accidental damage.
+    Pass safety_mode=False to opt into the full arsenal.
+    """
+    if safety_mode and tool not in SAFE_TOOLS:
+        raise ToolError(
+            "active exploitation blocked in safe mode — "
+            "pass allow_exploitation=True to override"
+        )
     merged = validate_params(tool, params)
     started = time.time()
     result = _EXECUTORS[tool](**merged)

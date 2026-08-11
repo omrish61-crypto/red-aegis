@@ -1,0 +1,40 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# INTECTED state (local — Docker manages its own volume)
+.intected/
+
+# Lockfile (installed via pyproject.toml deps)
+uv.lock
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# CI / test caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

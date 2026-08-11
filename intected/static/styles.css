@@ -105,6 +105,20 @@ td.mono, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.
 .grade-A { color: #2d6; } .grade-B { color: #8c3; } .grade-C { color: #db0; }
 .grade-D { color: #e80; } .grade-F { color: #d22; }
 #gen-report { font-size: 15px; padding: 10px 28px; }
+
+/* SMB Hero Scan Form */
+.hero-scan { text-align: center; padding: 50px 20px 30px; }
+.hero-scan h2 { font-size: 24px; margin: 0 0 8px; }
+.scan-form { display: flex; gap: 8px; justify-content: center;
+             flex-wrap: wrap; margin: 20px 0; }
+.scan-form input { padding: 10px 14px; font-size: 15px; border: 1px solid var(--border);
+                   border-radius: 6px; background: #111; color: var(--text);
+                   min-width: 200px; }
+.scan-form input:focus { border-color: var(--info); outline: none; }
+.btn.large { font-size: 16px; padding: 12px 30px; }
+.scan-result { margin-top: 20px; padding: 16px; border-radius: 8px;
+               background: #13291c; color: var(--ok); font-size: 14px; }
+.scan-result.err { background: #2c1412; color: var(--err); }
 .audit { list-style: none; font-size: 12.5px; color: var(--muted); max-height: 260px; overflow-y: auto; }
 .audit li { padding: 3px 0; border-bottom: 1px dashed #16202d; }
 .audit .ts { color: #55637a; margin-right: 10px; font-family: Consolas, monospace; }

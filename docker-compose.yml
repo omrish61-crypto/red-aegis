@@ -1,0 +1,79 @@
+# INTECTED / RedAegis — Docker Compose deployment
+#   dashboard :8765   FastAPI SPA (this repo)
+#   bridge    :4000   LiteLLM proxy → cloud + local LLMs (:11435 on host)
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f dashboard
+#
+# The dashboard token is auto-generated on first start and persisted at
+#   $INTECTED_STATE/dashboard.token  (volume-mounted, survives restarts).
+
+version: "3.9"
+
+services:
+  # ------------------------------------------------------------------ Dashboard
+  dashboard:
+    build: .
+    image: intected-dashboard:latest
+    container_name: intected-dashboard
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      # Persistent DB + evidence + token — survives container rebuilds
+      - intected_state:/home/intected/.intected
+      # Optional: mount project source for hot-reload during development
+      # - ./intected:/home/intected/app/intected:ro
+    environment:
+      - INTECTED_STATE=/home/intected/.intected
+      - REDAEGIS_BRIDGE_URL=http://bridge:4000/v1
+      - DASHBOARD_HOST=0.0.0.0
+      - DASHBOARD_PORT=8765
+    networks:
+      - redaegis-net
+    depends_on:
+      bridge:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8765/api/missions?token=healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # ------------------------------------------------------------------ LLM Bridge
+  bridge:
+    image: ghcr.io/berriai/litellm:latest
+    container_name: intected-bridge
+    restart: unless-stopped
+    ports:
+      - "11435:4000"
+    volumes:
+      # LiteLLM config (you can provide a litellm_config.yaml)
+      - ./litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      # Cloud API keys — set these in a .env file or pass at runtime
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      # Ollama reachable at host.docker.internal (Windows/Mac) or via another service
+      - OLLAMA_API_BASE=http://host.docker.internal:11434
+    networks:
+      - redaegis-net
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# -------------------------------------------------------------------- Volumes
+volumes:
+  intected_state:
+    driver: local
+
+# -------------------------------------------------------------------- Networks
+networks:
+  redaegis-net:
+    driver: bridge

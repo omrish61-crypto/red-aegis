@@ -202,6 +202,14 @@ def create_app(token: str | None = None,
                 return JSONResponse(
                     {"error": f"state {row['state']} is not runnable"},
                     status_code=409)
+            # safe-mode: dashboard NEVER runs exploitation tools
+            tool_name = (row.get("tool") or "").lower()
+            from .tools import SAFE_TOOLS as _safe_tools
+            if tool_name and tool_name not in _safe_tools:
+                return JSONResponse(
+                    {"error": "active exploitation blocked — "
+                     "dashboard is locked to recon-only tools",
+                     "state": "rejected"}, status_code=422)
             mission = db.get_mission(conn, row["mission_id"])
             hosts = json.loads(mission["allowed_hosts_json"] or "[]")
             # supervisor gate (Agent 1): scope + aggression
@@ -345,6 +353,18 @@ def create_app(token: str | None = None,
                     {"error": f"plan item {rank} has no command to run"},
                     status_code=422)
             cmd, area = cmds[0], item["area"]
+            # safe-mode: dashboard NEVER runs exploitation tools
+            from .tools import SAFE_TOOLS as _safe_tools
+            _cmd_lower = cmd.lower()
+            _exploitation_indicators = [
+                "sqlmap", "msfconsole", "msfvenom", "john", "hashcat",
+                "hydra", "medusa", "ncrack", "beef", "searchsploit",
+            ]
+            if any(ind in _cmd_lower for ind in _exploitation_indicators):
+                return JSONResponse(
+                    {"error": "active exploitation blocked — "
+                     "dashboard is locked to recon-only tools"},
+                    status_code=422)
             # supervisor gate (Agent 1): scope + aggression
             mission = db.get_mission(conn, mission_id)
             hosts = json.loads(mission["allowed_hosts_json"] or "[]")
@@ -433,6 +453,64 @@ def create_app(token: str | None = None,
             checklist = generate_checklist(grade, facts)
             html = _render_report_html(target, grade, summary, checklist, facts)
             return HTMLResponse(html)
+        finally:
+            conn.close()
+
+    @app.post("/api/scan")
+    def api_scan(domain: str = Query(...),
+                 email: str | None = Query(None),
+                 token: str | None = Query(None),
+                 x_intected_token: str | None = Header(None),
+                 origin: str | None = Header(None)):
+        """One-click 'Scan My Business': domain → auto-mission → safe recon.
+
+        The SMB user enters ONLY their domain name. RedAegis:
+        1. Creates a mission auto-scoped to that domain
+        2. Runs SAFE recon only (no exploitation — safe mode enforced)
+        3. Returns the mission ID + report URL
+
+        No CLI. No scope definition. No approve-command. Just a domain.
+        """
+        if not _authorized(x_intected_token or token, origin):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        import json as _json, re, time as _time
+        from .scope import validate_target
+        from .recon import run_recon
+        conn = _open()
+        try:
+            # 1. validate + normalize the domain
+            domain = domain.strip().lower()
+            if not re.match(r'^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$', domain):
+                return JSONResponse(
+                    {"error": f"invalid domain: {domain} — enter a domain like 'example.com'"},
+                    status_code=422)
+            # 2. create a mission with this domain as the single scope target
+            name = f"SCAN-{domain}-{_time.strftime('%Y%m%d-%H%M%S')}"
+            mid = db.create_mission(conn, name, [domain],
+                                    scope={"auto_scanned": True, "email": email or ""})
+            db.log_audit(conn, "dashboard", "scan.create",
+                         f"domain={domain} mission={mid} auto-scanned")
+            # 3. run SAFE recon against the domain
+            stages = []
+            try:
+                data = run_recon(conn, mid, domain, operator_approved=True)
+                stages = data.get("stages", [])
+            except Exception as exc:
+                db.log_audit(conn, "dashboard", "scan.error",
+                             f"domain={domain} mission={mid} error={exc}")
+            # 4. return the mission handle + report URL
+            facts_count = conn.execute(
+                "SELECT COUNT(*) FROM facts WHERE mission_id=?", (mid,)).fetchone()[0]
+            report_url = f"/api/missions/{mid}/report?token={token}"
+            return {
+                "mission_id": mid,
+                "mission_name": name,
+                "domain": domain,
+                "facts_found": facts_count,
+                "stages_completed": len([s for s in stages if s.get("gate") == "approved"]),
+                "report_url": report_url,
+                "message": f"Scan of {domain} complete. {facts_count} facts found. View your report at {report_url}",
+            }
         finally:
             conn.close()
 

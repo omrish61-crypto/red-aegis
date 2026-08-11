@@ -19,7 +19,7 @@ tool call only exists if it came from the registry with valid params.
 import re
 
 from .scope import ScopeViolation, check_command
-from .tools import RATE_CAP, list_tools, validate_params
+from .tools import RATE_CAP, SAFE_TOOLS, list_tools, validate_params
 
 # tools/patterns the supervisor will never auto-approve
 _BANNED_TOOLS = ("hydra", "medusa", "hashcat", "john", "ncrack", "msfconsole",
@@ -32,11 +32,25 @@ BLOCK_REASON_GENERIC = "blocked by supervisor policy"
 
 
 def validate_tool_call(tool: str, params: dict, allowed_hosts: list[str],
-                       operator_approved: bool = False) -> dict:
+                       operator_approved: bool = False,
+                       safety_mode: bool = True) -> dict:
     """Gate a tool call. Returns {'ok': True, 'params': {...}} or raises.
 
     Raises ToolError/ScopeViolation/ValueError with the exact reason.
+
+    When safety_mode is True (the default) any tool NOT in SAFE_TOOLS is
+    rejected — a hard gate that overrides operator approval. This prevents
+    active exploitation tools (sqlmap, msfconsole, john, hashcat, etc.)
+    from running through the dashboard or CLI without an explicit opt-in.
     """
+    # 0. safe-mode hard gate — runs before any other check; even
+    #    operator_approved cannot override this layer
+    if safety_mode and tool not in SAFE_TOOLS:
+        raise ValueError(
+            "active exploitation blocked in safe mode — "
+            "pass allow_exploitation=True to override"
+        )
+
     # 1. registry existence + param validation (nothing raw can pass)
     merged = validate_params(tool, params)
 

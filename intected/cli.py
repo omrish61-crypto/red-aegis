@@ -370,13 +370,15 @@ def cmd_run(args) -> int:
         try:
             validated = validate_tool_call(
                 args.tool, params, hosts,
-                operator_approved=args.operator_approved)
+                operator_approved=args.operator_approved,
+                safety_mode=not args.allow_exploitation)
         except (ToolError, ScopeViolation, ValueError) as exc:
             print(f"SUPERVISOR BLOCKED: {exc}", file=sys.stderr)
             return EXIT_ERR
         print(f"supervisor: approved {validated['tool']} "
               f"params={validated['params']}")
-        result = execute(args.tool, params)
+        result = execute(args.tool, params,
+                         safety_mode=not args.allow_exploitation)
         # persist raw output as evidence + parse into facts (durable results)
         facts_added, evidence_ref = _persist_run(conn, args.mission,
                                                  args.tool,
@@ -697,6 +699,34 @@ def cmd_pc(args) -> int:
     return EXIT_ERR
 
 
+def cmd_compliance(args) -> int:
+    """Print a NIST CSF 2.0 + CIS Controls v8 compliance summary."""
+    from . import compliance
+    from .grading import compute_grade
+
+    conn = _open_db()
+    try:
+        mission = db.get_mission(conn, args.mission)
+        if mission is None:
+            print(f"mission {args.mission} not found", file=sys.stderr)
+            return EXIT_ERR
+
+        # Pull raw facts (grouped by fact_type) for the entire mission
+        facts = compliance._load_facts(conn, args.mission, args.target)
+
+        # Compute the security grade report
+        grade = compute_grade(conn, args.mission, args.target)
+
+        # Compute compliance summary
+        summary = compliance.compliance_summary(grade, facts)
+
+        # Print formatted output
+        print(compliance.format_compliance_summary(summary))
+        return EXIT_OK
+    finally:
+        conn.close()
+
+
 def cmd_dashboard(args) -> int:
     """Start the FastAPI dashboard (P3)."""
     from .dashboard import create_app, load_or_create_token
@@ -792,6 +822,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rate", type=int, help="packets/s (supervisor-capped)")
     p.add_argument("--operator-approved", action="store_true",
                    help="explicit operator approval (needed for full -p- scans)")
+    p.add_argument("--allow-exploitation", action="store_true", default=False,
+                   help="allow active exploitation tools (sqlmap, msfconsole, "
+                        "john, hashcat); blocked by default in safe mode")
     p.add_argument("--raw", action="store_true", help="print raw tool output")
     p.set_defaults(fn=cmd_run)
 
@@ -851,6 +884,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cwe", help="comma-separated CWE ids (with write)")
     p.add_argument("--cve", help="comma-separated CVE ids (with write)")
     p.set_defaults(fn=cmd_pc)
+
+    p = sub.add_parser("compliance", help="NIST CSF 2.0 + CIS Controls v8 compliance mapping report")
+    p.add_argument("--mission", type=int, required=True)
+    p.add_argument("--target", help="optional target override")
+    p.set_defaults(fn=cmd_compliance)
 
     p = sub.add_parser("audit", help="show audit log")
     p.add_argument("--limit", type=int, default=50)

@@ -1,0 +1,48 @@
+# LiteLLM proxy configuration for RedAegis INTECTED bridge
+# Mounted into the bridge container at /app/config.yaml
+#
+# Routes cloud models (deepseek, openai) and proxies local Ollama.
+# Start:  docker compose up -d bridge
+#
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+model_list:
+  # --- cloud models (via deepseek / openai) ---
+  - model_name: deepseek-v4-flash
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  # --- local Ollama models (proxied) ---
+  # Bridge routes ollama/* → Ollama API base; set OLLAMA_API_BASE as env var.
+  - model_name: llama3.2:latest
+    litellm_params:
+      model: ollama/llama3.2:latest
+      api_base: os.environ/OLLAMA_API_BASE
+      api_key: ollama   # Ollama doesn't require a real key
+
+  - model_name: gemma3:4b
+    litellm_params:
+      model: ollama/gemma3:4b
+      api_base: os.environ/OLLAMA_API_BASE
+      api_key: ollama
+
+  - model_name: qwen2.5-coder:7b
+    litellm_params:
+      model: ollama/qwen2.5-coder:7b
+      api_base: os.environ/OLLAMA_API_BASE
+      api_key: ollama
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+
+router_settings:
+  num_retries: 2
+  timeout: 120

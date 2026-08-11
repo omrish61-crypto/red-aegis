@@ -31,7 +31,9 @@ def state_dir() -> str:
 def db_path() -> str:
     return os.path.join(state_dir(), "intected.db")
 
-BRIDGE_URL = "http://127.0.0.1:11435/v1"   # LiteLLM: deepseek-v4-* + local models
+BRIDGE_URL = os.environ.get(
+    "REDAEGIS_BRIDGE_URL", "http://127.0.0.1:11435/v1"
+)   # LiteLLM: deepseek-v4-* + local models (Docker default: http://bridge:4000/v1)
 OLLAMA_URL = "http://127.0.0.1:11434/v1"   # direct Ollama (deepseek-r1:8b etc.)
 
 # pentest-core production DB (P4 integration). Override per host with

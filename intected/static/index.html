@@ -34,6 +34,18 @@
         (401). Reload with <code>?token=&lt;TOKEN&gt;</code> from
         <code>~/.intected/dashboard.token</code>.</span>
     </div>
+    <!-- HERO SCAN FORM (SMB one-click) -->
+    <section id="view-scan" class="view hero-scan">
+      <h2>Scan My Business</h2>
+      <p class="hint">Enter your company domain — we'll check your security and give you a report you can share with your insurance broker.</p>
+      <form id="scan-form" class="scan-form">
+        <input id="scan-domain" type="text" placeholder="yourcompany.com" required autocomplete="off">
+        <input id="scan-email" type="email" placeholder="you@yourcompany.com (optional)">
+        <button type="submit" class="btn primary large">Scan My Business</button>
+      </form>
+      <div id="scan-result" class="scan-result hidden"></div>
+    </section>
+
     <!-- PROCESS -->
     <section id="view-process" class="view active">
       <div class="grid-2">
