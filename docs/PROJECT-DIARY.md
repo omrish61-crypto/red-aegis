@@ -793,3 +793,10 @@ RESULT: 961 templates load; REAL finding — prometheus-metrics [medium] at
 http://127.0.0.1:3000/metrics (verified HTTP 200, 26KB real metrics) —
 ingested as a fact in mission 8 (evidence: nuclei_juice_20260811.jsonl +
 metrics_juice_20260811.raw).
+
+### intected run persistence fix (06:18)
+`intected run` executed scans but discarded results — no evidence/facts stored.
+Fixed: cmd_run now persists raw output to <state>/evidence/mission-N/ + parses
+into facts (facts_added + evidence_ref in the result). Proven live: the
+1-3500 scan of 127.0.0.1 stored its port-3000 finding as a fact with sha256
+evidence.

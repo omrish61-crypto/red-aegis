@@ -325,6 +325,12 @@ def cmd_run(args) -> int:
         print(f"supervisor: approved {validated['tool']} "
               f"params={validated['params']}")
         result = execute(args.tool, params)
+        # persist raw output as evidence + parse into facts (durable results)
+        facts_added, evidence_ref = _persist_run(conn, args.mission,
+                                                 args.tool, args.target,
+                                                 result.get("output", ""))
+        result["facts_added"] = facts_added
+        result["evidence_ref"] = evidence_ref
         if args.raw:
             print(result["output"])
         else:
@@ -334,6 +340,28 @@ def cmd_run(args) -> int:
         return EXIT_OK
     finally:
         conn.close()
+
+
+def _persist_run(conn, mission_id: int, tool: str, target: str,
+                 output: str) -> tuple[int, str]:
+    """Save raw output as evidence + parse into facts; returns (count, ref)."""
+    import os as _os
+    import tempfile as _tf
+    from . import config
+    from .parsing import EXTRACTORS, parse_tool_output
+    if not output.strip():
+        return 0, ""
+    parser_tool = {"nmap_ports": "nmap", "nmap_services": "nmap"}.get(tool, tool)
+    state = _os.path.join(config.state_dir(), "evidence", f"mission-{mission_id}")
+    _os.makedirs(state, exist_ok=True)
+    fd, raw_path = _tf.mkstemp(
+        prefix=f"{tool}_{target.replace('/', '_')}_", suffix=".raw", dir=state)
+    with _os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
+        f.write(output)
+    if parser_tool not in EXTRACTORS:
+        return 0, _os.path.basename(raw_path)
+    res = parse_tool_output(conn, mission_id, parser_tool, raw_path)
+    return len(res.get("facts", [])), _os.path.basename(raw_path)
 
 
 def cmd_tools(args) -> int:
