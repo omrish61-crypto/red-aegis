@@ -78,3 +78,23 @@ available for any tool needed.
 - Policy mapping: brute-force/password tools and exploitation frameworks
   exist but are NOT in the execution registry — operator approval + legal
   scope only.
+
+## 2026-08-11 — Tool Expansion (kali-linux-everything audit)
+
+After full system audit + apt upgrade + nuclei template update:
+
+**NEW TOOLS ADDED (7):**
+| Tool | Package | Purpose | SMB Value |
+|---|---|---|---|
+| cewl | cewl | Custom wordlist from target website | HIGH — targeted password cracking |
+| snmpwalk | snmp | SNMP enumeration | HIGH — IoT/network device discovery |
+| dnsenum | dnsenum | Comprehensive DNS enumeration | HIGH — OSINT stage 1 |
+| fierce | fierce | DNS reconnaissance | MEDIUM — domain mapping |
+| dmitry | dmitry | Deepmagic Information Gathering | MEDIUM — whois/email/dns in one |
+| davtest | davtest | WebDAV testing | MEDIUM — file upload vulns |
+| SecLists | seclists | 420+ wordlist categories | HIGH — ffuf, gobuster, john, hashcat |
+
+**TOTAL VERIFIED TOOLS: 33** (was 26)
+
+**NUCLEI TEMPLATES:** 30+ directories, updated via -ut
+**SYSTEM:** apt upgrade applied, all packages current
