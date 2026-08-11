@@ -48,9 +48,12 @@ available for any tool needed.
 
 ## Actionable gaps (honest)
 
-1. **nuclei templates missing** (0 template dirs) — nuclei engine runs but
-   has no templates; `nuclei -ut` needs internet. THE recommended fix for
-   web-CVE verification coverage.
+1. **nuclei templates — RESOLVED 2026-08-11 05:10**: templates ARE present at
+   /root/.local/nuclei-templates (30 dirs: cves, exposures, http, workflows...).
+   `nuclei -ut` reports "no new updates" (up to date). Earlier "missing" was a
+   wrong-path check (/root/.local/share vs /root/.local). Bounded scans run
+   end-to-end (Juice Shop + scanme, rl 10 c 5, exit 0) — no findings tripped
+   in the bounded windows; longer runs / more targets may surface CVEs.
 2. **impacket** absent — no psexec.py/wmiexec.py examples (needed for AD
    post-exploitation; not relevant to the current lab).
 3. **amass** passive mode degraded (libpostal_data).
