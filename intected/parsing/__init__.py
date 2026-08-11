@@ -74,6 +74,7 @@ def _decode(raw: bytes) -> str:
 
 
 def parse_tool_output(conn, mission_id: int, tool: str, raw_path: str,
+                      target: str = "",
                       task_id: int | None = None) -> dict:
     """Parse a raw evidence file into DB facts.
 
@@ -93,7 +94,7 @@ def parse_tool_output(conn, mission_id: int, tool: str, raw_path: str,
     ids = []
     for fact in facts:
         fid = db.add_fact(
-            conn, mission_id, tool=tool,
+            conn, mission_id, tool=tool, target=target,
             fact_type=fact["fact_type"],
             value=fact["value"],
             confidence=fact.get("confidence", 1.0),

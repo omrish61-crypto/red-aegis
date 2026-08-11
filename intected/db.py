@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS facts(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   mission_id INTEGER NOT NULL REFERENCES missions(id),
   task_id INTEGER REFERENCES tasks(id),
+  target TEXT NOT NULL DEFAULT '',
   tool TEXT NOT NULL,
   fact_type TEXT NOT NULL
     CHECK (fact_type IN ('port','service','version','path','param','cve','credential','note')),
@@ -98,6 +99,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     if "authorizations_json" not in cols:
         conn.execute("ALTER TABLE missions ADD COLUMN "
                      "authorizations_json TEXT NOT NULL DEFAULT '[]'")
+    # v2 -> v3 migration: facts.target  (per-target evidence scoping)
+    fact_cols = {r["name"] for r in conn.execute("PRAGMA table_info(facts)")}
+    if "target" not in fact_cols:
+        conn.execute("ALTER TABLE facts ADD COLUMN target TEXT NOT NULL DEFAULT ''")
     row = conn.execute("SELECT version FROM schema_version").fetchone()
     if row is None:
         conn.execute("INSERT INTO schema_version(version) VALUES (?)",
@@ -254,13 +259,14 @@ def get_tasks(conn, mission_id: int) -> list[sqlite3.Row]:
 
 def add_fact(conn, mission_id: int, tool: str, fact_type: str, value: dict,
              evidence_ref: str | None = None, sha256: str | None = None,
-             task_id: int | None = None, confidence: float = 1.0) -> int:
+             task_id: int | None = None, confidence: float = 1.0,
+             target: str = "") -> int:
     if fact_type not in FACT_TYPES:
         raise ValueError(f"bad fact_type {fact_type!r}; expected one of {FACT_TYPES}")
     cur = conn.execute(
-        "INSERT INTO facts(mission_id, task_id, tool, fact_type, value_json, "
-        "confidence, evidence_ref, sha256) VALUES (?,?,?,?,?,?,?,?)",
-        (mission_id, task_id, tool, fact_type, json.dumps(value),
+        "INSERT INTO facts(mission_id, task_id, target, tool, fact_type, value_json, "
+        "confidence, evidence_ref, sha256) VALUES (?,?,?,?,?,?,?,?,?)",
+        (mission_id, task_id, target, tool, fact_type, json.dumps(value),
          confidence, evidence_ref, sha256),
     )
     conn.commit()

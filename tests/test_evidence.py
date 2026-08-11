@@ -147,6 +147,35 @@ class PlannerTest(unittest.TestCase):
             import os
             os.unlink(path)
 
+    def test_per_target_filtering(self):
+        """Facts are scoped to their source host (v3 per-target migration)."""
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        path = tmp.name; tmp.close()
+        conn = db.connect(path)
+        try:
+            db.init_db(conn)
+            mid = db.create_mission(conn, "dual-hosts", ["host-a", "host-b"])
+            db.add_fact(conn, mid, "nmap", "port",
+                        {"port": 80, "protocol": "tcp"}, target="host-a")
+            db.add_fact(conn, mid, "nmap", "port",
+                        {"port": 22, "protocol": "tcp"}, target="host-b")
+            g_a = build_evidence_graph(conn, mid, "host-a")
+            g_b = build_evidence_graph(conn, mid, "host-b")
+            g_all = build_evidence_graph(conn, mid)
+            svc_a = [str(s["port"]) for s in g_a.services]
+            svc_b = [str(s["port"]) for s in g_b.services]
+            svc_all = [str(s["port"]) for s in g_all.services]
+            self.assertIn("80", svc_a)
+            self.assertNotIn("22", svc_a)
+            self.assertIn("22", svc_b)
+            self.assertNotIn("80", svc_b)
+            self.assertIn("80", svc_all)
+            self.assertIn("22", svc_all)
+        finally:
+            conn.close()
+            import os
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()

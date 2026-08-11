@@ -342,9 +342,11 @@ def cmd_run(args) -> int:
         conn.close()
 
 
-def _persist_run(conn, mission_id: int, tool: str, target: str,
-                 output: str) -> tuple[int, str]:
-    """Save raw output as evidence + parse into facts; returns (count, ref)."""
+def _persist_run(conn, mission_id: int, tool: str, output: str,
+                 *, target: str = "") -> tuple[int, str]:
+    """Save raw output as evidence + parse into facts; returns (count, ref).
+    Pass ``target=`` as keyword to scope facts to a specific host for
+    per-target evidence filtering (v3 migration)."""
     import os as _os
     import tempfile as _tf
     from . import config
@@ -360,7 +362,8 @@ def _persist_run(conn, mission_id: int, tool: str, target: str,
         f.write(output)
     if parser_tool not in EXTRACTORS:
         return 0, _os.path.basename(raw_path)
-    res = parse_tool_output(conn, mission_id, parser_tool, raw_path)
+    res = parse_tool_output(conn, mission_id, parser_tool, raw_path,
+                            target=target)
     return len(res.get("facts", [])), _os.path.basename(raw_path)
 
 

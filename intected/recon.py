@@ -156,7 +156,8 @@ def _ingest(conn, mission_id: int, tool: str, target: str, output: str) -> int:
                      f"tool={tool} target={target} facts=0 "
                      f"ref={os.path.basename(raw_path)} (no extractor)")
         return 0, os.path.basename(raw_path)
-    res = parse_tool_output(conn, mission_id, parser_tool, raw_path)
+    res = parse_tool_output(conn, mission_id, parser_tool, raw_path,
+                            target=target)
     n = len(res.get("facts", []))
     # every evidence file must be traceable — audit even when 0 facts parsed
     db.log_audit(conn, "recon", "evidence.raw",

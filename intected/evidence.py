@@ -104,10 +104,18 @@ def _infer_technologies(text: str) -> list[str]:
 
 
 def build_evidence_graph(conn, mission_id: int, target: str | None = None) -> EvidenceGraph:
-    """Compose the fact store into a per-target EvidenceGraph (methodology 12)."""
-    rows = conn.execute(
-        "SELECT id, tool, fact_type, value_json, confidence FROM facts "
-        "WHERE mission_id=? ORDER BY id", (mission_id,)).fetchall()
+    """Compose the fact store into a per-target EvidenceGraph (methodology 12).
+    When ``target`` is given, facts are filtered to that host only (v3 per-target
+    scoping); when None, all mission facts are included (backwards-compat)."""
+    if target:
+        rows = conn.execute(
+            "SELECT id, tool, fact_type, value_json, confidence FROM facts "
+            "WHERE mission_id=? AND (target=? OR target='') ORDER BY id",
+            (mission_id, target)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, tool, fact_type, value_json, confidence FROM facts "
+            "WHERE mission_id=? ORDER BY id", (mission_id,)).fetchall()
     asset = target or f"mission-{mission_id}"
     graph = EvidenceGraph(asset)
     for fact_id, tool, ftype, value_json, confidence in rows:
